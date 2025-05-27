@@ -1515,15 +1515,23 @@ export default function Game() {
               break;
             case 'banana-boomerang':
               newState.weapons.bananaBoomerang = true;
+              newState.weapons.coconuts = true; // Auto-unlock coconut system
+              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
               break;
             case 'pineapple-grenade':
               newState.weapons.pineappleGrenade = true;
+              newState.weapons.coconuts = true; // Auto-unlock coconut system
+              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
               break;
             case 'watermelon-cannon':
               newState.weapons.watermelonCannon = true;
+              newState.weapons.coconuts = true; // Auto-unlock coconut system
+              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
               break;
             case 'durian':
               newState.weapons.durian = true;
+              newState.weapons.coconuts = true; // Auto-unlock coconut system
+              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
               break;
             case 'vine-whip':
               newState.weapons.vineWhip = true;

@@ -439,15 +439,17 @@ function LootBoxComponent({ lootBox, playerPosition, onCollect }: {
 }
 
 // Knife Attack Component
-function KnifeAttackComponent({ attack, onComplete }: { 
+function KnifeAttackComponent({ attack, onComplete, onHit }: { 
   attack: KnifeAttack, 
-  onComplete: (attackId: string) => void 
+  onComplete: (attackId: string) => void,
+  onHit: (attackId: string, position: [number, number, number]) => void
 }) {
   const ref = useRef<THREE.Group>(null);
   const life = useRef(attack.life);
+  const hasHit = useRef(false);
   
   useFrame((state, delta) => {
-    if (ref.current) {
+    if (ref.current && !hasHit.current) {
       life.current -= delta;
       if (life.current <= 0) {
         onComplete(attack.id);
@@ -455,8 +457,20 @@ function KnifeAttackComponent({ attack, onComplete }: {
       }
       
       // Move knife attack forward
-      ref.current.position.x += attack.direction[0] * delta * 10;
-      ref.current.position.z += attack.direction[2] * delta * 10;
+      const speed = 15; // Faster knife speed
+      ref.current.position.x += attack.direction[0] * delta * speed;
+      ref.current.position.y += attack.direction[1] * delta * speed;
+      ref.current.position.z += attack.direction[2] * delta * speed;
+      
+      // Check for hits at current position
+      const currentPos: [number, number, number] = [
+        ref.current.position.x,
+        ref.current.position.y,
+        ref.current.position.z
+      ];
+      
+      // Trigger hit detection
+      onHit(attack.id, currentPos);
       
       // Fade out
       const opacity = life.current / attack.life;
@@ -844,6 +858,48 @@ export default function Game() {
     setKnifeAttacks(prev => prev.filter(k => k.id !== attackId));
   };
 
+  // Knife attack hit handler
+  const handleKnifeAttackHit = (attackId: string, position: [number, number, number]) => {
+    // Check for hits on enemies at the knife position
+    setGameState(prev => ({
+      ...prev,
+      enemies: prev.enemies.map(enemy => {
+        if (!enemy.alive) return enemy;
+        
+        const currentPos = enemyPositions[enemy.id] || enemy.position;
+        const dx = currentPos[0] - position[0];
+        const dz = currentPos[2] - position[2];
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        
+        if (distance < 2) { // Knife hit range
+          const newHealth = enemy.health - 75; // High knife damage
+          if (newHealth <= 0) {
+            // Drop money when enemy dies
+            const moneyValue = 50 + Math.floor(Math.random() * 50);
+            const newMoney: MoneyDrop = {
+              id: `money-knife-${enemy.id}-${Date.now()}`,
+              position: [currentPos[0], currentPos[1] + 1, currentPos[2]],
+              value: moneyValue,
+              collected: false
+            };
+            setMoneyDrops(prev => [...prev, newMoney]);
+            
+            // Remove the knife attack after hit
+            setKnifeAttacks(prev => prev.filter(k => k.id !== attackId));
+            
+            setGameState(prev2 => ({ ...prev2, score: prev2.score + 100 }));
+            return { ...enemy, health: 0, alive: false };
+          }
+          
+          // Remove the knife attack after hit
+          setKnifeAttacks(prev => prev.filter(k => k.id !== attackId));
+          return { ...enemy, health: newHealth };
+        }
+        return enemy;
+      })
+    }));
+  };
+
   // Handle camera ready callback
   const handleCameraReady = (camera: THREE.Camera) => {
     cameraRef.current = camera;
@@ -1022,6 +1078,7 @@ export default function Game() {
             key={attack.id}
             attack={attack}
             onComplete={handleKnifeAttackComplete}
+            onHit={handleKnifeAttackHit}
           />
         ))}
         

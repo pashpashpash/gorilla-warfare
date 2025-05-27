@@ -857,8 +857,14 @@ export default function Game() {
     playerPositionRef.current = playerPosition;
   }, [playerPosition]);
 
-  // Knife attack function
-  const performKnifeAttack = () => {
+  // Get current melee weapon
+  const getCurrentMeleeWeapon = () => {
+    if (gameState.weapons.vineWhip) return 'vineWhip';
+    return 'knife';
+  };
+
+  // Melee attack function (knife or vine whip)
+  const performMeleeAttack = () => {
     const now = Date.now();
     if (now - lastKnifeAttack.current < 500) return; // 500ms cooldown
     
@@ -869,15 +875,16 @@ export default function Game() {
       cameraRef.current.getWorldDirection(direction);
       
       const currentPlayerPos = playerPositionRef.current;
+      const currentWeapon = getCurrentMeleeWeapon();
       
-      const newKnifeAttack: KnifeAttack = {
-        id: `knife-${now}`,
+      const newAttack: KnifeAttack = {
+        id: `${currentWeapon}-${now}`,
         position: [currentPlayerPos[0], currentPlayerPos[1] + 1, currentPlayerPos[2]],
         direction: [direction.x, direction.y, direction.z],
-        life: 0.5
+        life: currentWeapon === 'vineWhip' ? 0.8 : 0.5 // Vine whip lasts longer
       };
       
-      setKnifeAttacks(prev => [...prev, newKnifeAttack]);
+      setKnifeAttacks(prev => [...prev, newAttack]);
       
       // Check for immediate hits on nearby enemies
       setGameState(prev => ({
@@ -890,8 +897,11 @@ export default function Game() {
           const dz = currentPos[2] - currentPlayerPos[2];
           const distance = Math.sqrt(dx * dx + dz * dz);
           
-          if (distance < 3) { // Knife range
-            const baseDamage = 75;
+          // Different range and damage for different weapons
+          const weaponRange = currentWeapon === 'vineWhip' ? 5 : 3; // Vine whip has longer range
+          const baseDamage = currentWeapon === 'vineWhip' ? 100 : 75; // Vine whip does more damage
+          
+          if (distance < weaponRange) {
             const actualDamage = baseDamage * (gameState.perks.baseDamage / 50); // Scale with base damage
             const newHealth = enemy.health - actualDamage;
             if (newHealth <= 0) {
@@ -931,7 +941,7 @@ export default function Game() {
         case 'KeyD': keys.d = true; break;
         case 'Space': 
           if (!keys.space && gameState.weapons.knife && isPointerLocked) {
-            performKnifeAttack();
+            performMeleeAttack();
           }
           keys.space = true; 
           event.preventDefault(); 
@@ -1514,7 +1524,7 @@ export default function Game() {
           <div>WASD: Move</div>
           <div>Mouse: Look Around</div>
           <div>Click: {isPointerLocked ? 'Shoot Coconut' : 'Lock Mouse'}</div>
-          <div>Space: Knife Attack</div>
+          <div>Space: {getCurrentMeleeWeapon() === 'vineWhip' ? '🌿 Vine Whip' : '🔪 Knife'} Attack</div>
           {isPointerLocked && <div className="text-green-400">Mouse Locked ✓</div>}
         </div>
       </div>

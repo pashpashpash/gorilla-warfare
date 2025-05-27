@@ -18,10 +18,24 @@ interface GameState {
   health: number;
   score: number;
   coconuts: number;
+  money: number;
   enemies: Enemy[];
   gameStarted: boolean;
   gameOver: boolean;
   wave: number;
+  betweenWaves: boolean;
+  weapons: {
+    knife: boolean;
+    dualCoconuts: boolean;
+    explosiveCoconuts: boolean;
+    rapidFire: boolean;
+  };
+  perks: {
+    healthBoost: number;
+    speedBoost: number;
+    magneticRange: number;
+    damageMultiplier: number;
+  };
 }
 
 interface Enemy {
@@ -37,6 +51,28 @@ interface Coconut {
   id: string;
   position: [number, number, number];
   velocity: [number, number, number];
+  life: number;
+  explosive?: boolean;
+}
+
+interface MoneyDrop {
+  id: string;
+  position: [number, number, number];
+  value: number;
+  collected: boolean;
+}
+
+interface LootBox {
+  id: string;
+  position: [number, number, number];
+  type: 'health' | 'speed' | 'damage' | 'coconuts' | 'money' | 'invincibility';
+  collected: boolean;
+}
+
+interface KnifeAttack {
+  id: string;
+  position: [number, number, number];
+  direction: [number, number, number];
   life: number;
 }
 
@@ -305,6 +341,140 @@ function SimpleEnvironment() {
   );
 }
 
+// Money Drop Component
+function MoneyDropComponent({ money, playerPosition, onCollect }: { 
+  money: MoneyDrop, 
+  playerPosition: [number, number, number],
+  onCollect: (moneyId: string) => void 
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const bobOffset = useRef(Math.random() * Math.PI * 2);
+  
+  useFrame((state, delta) => {
+    if (ref.current && !money.collected) {
+      // Bobbing animation
+      ref.current.position.y = money.position[1] + Math.sin(state.clock.elapsedTime * 3 + bobOffset.current) * 0.2;
+      
+      // Magnetic pull towards player
+      const dx = playerPosition[0] - money.position[0];
+      const dz = playerPosition[2] - money.position[2];
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      
+      if (distance < 5) { // Magnetic range
+        const pullStrength = 0.1;
+        money.position[0] += dx * pullStrength;
+        money.position[2] += dz * pullStrength;
+        
+        if (distance < 1) {
+          onCollect(money.id);
+        }
+      }
+      
+      // Rotation
+      ref.current.rotation.y += delta * 2;
+    }
+  });
+
+  if (money.collected) return null;
+
+  return (
+    <group ref={ref} position={money.position}>
+      <Box args={[0.3, 0.6, 0.1]} position={[0, 0, 0]}>
+        <meshStandardMaterial color="#00FF00" emissive="#004400" />
+      </Box>
+      <Box args={[0.4, 0.2, 0.05]} position={[0, 0, 0]}>
+        <meshStandardMaterial color="#FFFFFF" />
+      </Box>
+    </group>
+  );
+}
+
+// Loot Box Component
+function LootBoxComponent({ lootBox, playerPosition, onCollect }: { 
+  lootBox: LootBox, 
+  playerPosition: [number, number, number],
+  onCollect: (lootBoxId: string) => void 
+}) {
+  const ref = useRef<THREE.Group>(null);
+  
+  useFrame((state, delta) => {
+    if (ref.current && !lootBox.collected) {
+      // Floating and rotating
+      ref.current.position.y = lootBox.position[1] + Math.sin(state.clock.elapsedTime * 2) * 0.3;
+      ref.current.rotation.y += delta;
+      ref.current.rotation.x += delta * 0.5;
+      
+      // Check collection distance
+      const dx = playerPosition[0] - lootBox.position[0];
+      const dz = playerPosition[2] - lootBox.position[2];
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      
+      if (distance < 2) {
+        onCollect(lootBox.id);
+      }
+    }
+  });
+
+  if (lootBox.collected) return null;
+
+  const colors = {
+    health: '#FF0000',
+    speed: '#00FF00', 
+    damage: '#FF8800',
+    coconuts: '#8B4513',
+    money: '#FFD700',
+    invincibility: '#9400D3'
+  };
+
+  return (
+    <group ref={ref} position={lootBox.position}>
+      <Box args={[1, 1, 1]} position={[0, 0, 0]}>
+        <meshStandardMaterial color={colors[lootBox.type]} emissive={colors[lootBox.type]} emissiveIntensity={0.3} />
+      </Box>
+      <Sphere args={[0.2]} position={[0, 0.7, 0]}>
+        <meshBasicMaterial color="white" />
+      </Sphere>
+    </group>
+  );
+}
+
+// Knife Attack Component
+function KnifeAttackComponent({ attack, onComplete }: { 
+  attack: KnifeAttack, 
+  onComplete: (attackId: string) => void 
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const life = useRef(attack.life);
+  
+  useFrame((state, delta) => {
+    if (ref.current) {
+      life.current -= delta;
+      if (life.current <= 0) {
+        onComplete(attack.id);
+        return;
+      }
+      
+      // Move knife attack forward
+      ref.current.position.x += attack.direction[0] * delta * 10;
+      ref.current.position.z += attack.direction[2] * delta * 10;
+      
+      // Fade out
+      const opacity = life.current / attack.life;
+      if (ref.current.children[0]) {
+        (ref.current.children[0] as any).material.opacity = opacity;
+      }
+    }
+  });
+
+  return (
+    <group ref={ref} position={attack.position}>
+      <Box args={[0.1, 0.5, 2]} position={[0, 0, 0]}>
+        <meshBasicMaterial color="#C0C0C0" transparent />
+      </Box>
+    </group>
+  );
+}
+
 // Explosion Effect
 function Explosion({ position, onComplete }: { position: [number, number, number], onComplete: () => void }) {
   const ref = useRef<THREE.Group>(null);
@@ -336,21 +506,104 @@ export default function Game() {
     health: 100,
     score: 0,
     coconuts: 10,
+    money: 0,
     enemies: [],
     gameStarted: false,
     gameOver: false,
-    wave: 1
+    wave: 1,
+    betweenWaves: false,
+    weapons: {
+      knife: true,
+      dualCoconuts: false,
+      explosiveCoconuts: false,
+      rapidFire: false
+    },
+    perks: {
+      healthBoost: 0,
+      speedBoost: 0,
+      magneticRange: 3,
+      damageMultiplier: 1
+    }
   });
 
   const [playerPosition, setPlayerPosition] = useState<[number, number, number]>([0, 0, 0]);
   const [coconutProjectiles, setCoconutProjectiles] = useState<Coconut[]>([]);
   const [explosions, setExplosions] = useState<{ id: string, position: [number, number, number] }[]>([]);
   const [enemyPositions, setEnemyPositions] = useState<{ [key: string]: [number, number, number] }>({});
+  const [moneyDrops, setMoneyDrops] = useState<MoneyDrop[]>([]);
+  const [lootBoxes, setLootBoxes] = useState<LootBox[]>([]);
+  const [knifeAttacks, setKnifeAttacks] = useState<KnifeAttack[]>([]);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
   const cameraRotation = useRef({ theta: 0, phi: Math.PI / 2 });
   const cameraRef = useRef<THREE.Camera | null>(null);
+  const lastKnifeAttack = useRef(0);
 
-  // Key handling
+  // Player position ref to get current position
+  const playerPositionRef = useRef<[number, number, number]>([0, 0, 0]);
+  
+  // Update player position ref whenever position changes
+  useEffect(() => {
+    playerPositionRef.current = playerPosition;
+  }, [playerPosition]);
+
+  // Knife attack function
+  const performKnifeAttack = () => {
+    const now = Date.now();
+    if (now - lastKnifeAttack.current < 500) return; // 500ms cooldown
+    
+    lastKnifeAttack.current = now;
+    
+    if (cameraRef.current) {
+      const direction = new THREE.Vector3();
+      cameraRef.current.getWorldDirection(direction);
+      
+      const currentPlayerPos = playerPositionRef.current;
+      
+      const newKnifeAttack: KnifeAttack = {
+        id: `knife-${now}`,
+        position: [currentPlayerPos[0], currentPlayerPos[1] + 1, currentPlayerPos[2]],
+        direction: [direction.x, direction.y, direction.z],
+        life: 0.5
+      };
+      
+      setKnifeAttacks(prev => [...prev, newKnifeAttack]);
+      
+      // Check for immediate hits on nearby enemies
+      setGameState(prev => ({
+        ...prev,
+        enemies: prev.enemies.map(enemy => {
+          if (!enemy.alive) return enemy;
+          
+          const currentPos = enemyPositions[enemy.id] || enemy.position;
+          const dx = currentPos[0] - currentPlayerPos[0];
+          const dz = currentPos[2] - currentPlayerPos[2];
+          const distance = Math.sqrt(dx * dx + dz * dz);
+          
+          if (distance < 3) { // Knife range
+            const newHealth = enemy.health - 75; // High knife damage
+            if (newHealth <= 0) {
+              // Drop money when enemy dies
+              const moneyValue = 50 + Math.floor(Math.random() * 50);
+              const newMoney: MoneyDrop = {
+                id: `money-${enemy.id}-${now}`,
+                position: [currentPos[0], currentPos[1] + 1, currentPos[2]],
+                value: moneyValue,
+                collected: false
+              };
+              setMoneyDrops(prev => [...prev, newMoney]);
+              
+              setGameState(prev2 => ({ ...prev2, score: prev2.score + 100 }));
+              return { ...enemy, health: 0, alive: false };
+            }
+            return { ...enemy, health: newHealth };
+          }
+          return enemy;
+        })
+      }));
+    }
+  };
+
+  // Key handling with knife attack
   useEffect(() => {
     const keys = { w: false, a: false, s: false, d: false, space: false };
     (window as any).gameKeys = keys;
@@ -361,7 +614,13 @@ export default function Game() {
         case 'KeyA': keys.a = true; break;
         case 'KeyS': keys.s = true; break;
         case 'KeyD': keys.d = true; break;
-        case 'Space': keys.space = true; event.preventDefault(); break;
+        case 'Space': 
+          if (!keys.space && gameState.weapons.knife && isPointerLocked) {
+            performKnifeAttack();
+          }
+          keys.space = true; 
+          event.preventDefault(); 
+          break;
       }
     };
 
@@ -383,7 +642,7 @@ export default function Game() {
       window.removeEventListener('keyup', handleKeyUp);
       delete (window as any).gameKeys;
     };
-  }, []);
+  }, [gameState.weapons.knife, isPointerLocked]);
 
   // Pointer lock and mouse movement
   useEffect(() => {
@@ -411,7 +670,7 @@ export default function Game() {
     };
   }, [isPointerLocked]);
 
-  // Initialize enemies
+  // Initialize enemies and spawn loot boxes
   useEffect(() => {
     if (gameState.gameStarted && gameState.enemies.length === 0) {
       const newEnemies: Enemy[] = [];
@@ -436,6 +695,25 @@ export default function Game() {
       }
       
       setGameState(prev => ({ ...prev, enemies: newEnemies }));
+      
+      // Spawn loot boxes occasionally (20% chance per wave)
+      if (Math.random() < 0.2) {
+        const lootTypes: LootBox['type'][] = ['health', 'speed', 'damage', 'coconuts', 'money', 'invincibility'];
+        const randomType = lootTypes[Math.floor(Math.random() * lootTypes.length)];
+        
+        const newLootBox: LootBox = {
+          id: `lootbox-${gameState.wave}-${Date.now()}`,
+          position: [
+            (Math.random() - 0.5) * 30,
+            2,
+            (Math.random() - 0.5) * 30
+          ],
+          type: randomType,
+          collected: false
+        };
+        
+        setLootBoxes(prev => [...prev, newLootBox]);
+      }
     }
   }, [gameState.gameStarted, gameState.enemies.length, gameState.wave]);
 
@@ -488,6 +766,16 @@ export default function Game() {
         if (distance < 5) {
           const newHealth = enemy.health - 50;
           if (newHealth <= 0) {
+            // Drop money when enemy dies from coconut
+            const moneyValue = 50 + Math.floor(Math.random() * 50);
+            const newMoney: MoneyDrop = {
+              id: `money-coconut-${enemy.id}-${Date.now()}`,
+              position: [currentPos[0], currentPos[1] + 1, currentPos[2]],
+              value: moneyValue,
+              collected: false
+            };
+            setMoneyDrops(prev => [...prev, newMoney]);
+            
             setGameState(prev2 => ({ ...prev2, score: prev2.score + 100 }));
             return { ...enemy, health: 0, alive: false };
           }
@@ -511,6 +799,49 @@ export default function Game() {
 
   const handleExplosionComplete = (explosionId: string) => {
     setExplosions(prev => prev.filter(e => e.id !== explosionId));
+  };
+
+  // Money collection handler
+  const handleMoneyCollect = (moneyId: string) => {
+    const money = moneyDrops.find(m => m.id === moneyId);
+    if (money && !money.collected) {
+      setGameState(prev => ({ ...prev, money: prev.money + money.value }));
+      setMoneyDrops(prev => prev.map(m => m.id === moneyId ? { ...m, collected: true } : m));
+    }
+  };
+
+  // Loot box collection handler
+  const handleLootBoxCollect = (lootBoxId: string) => {
+    const lootBox = lootBoxes.find(l => l.id === lootBoxId);
+    if (lootBox && !lootBox.collected) {
+      setLootBoxes(prev => prev.map(l => l.id === lootBoxId ? { ...l, collected: true } : l));
+      
+      // Apply loot box effects
+      setGameState(prev => {
+        switch (lootBox.type) {
+          case 'health':
+            return { ...prev, health: Math.min(100, prev.health + 50) };
+          case 'speed':
+            return { ...prev, perks: { ...prev.perks, speedBoost: prev.perks.speedBoost + 1 } };
+          case 'damage':
+            return { ...prev, perks: { ...prev.perks, damageMultiplier: prev.perks.damageMultiplier + 0.5 } };
+          case 'coconuts':
+            return { ...prev, coconuts: prev.coconuts + 10 };
+          case 'money':
+            return { ...prev, money: prev.money + 200 };
+          case 'invincibility':
+            // TODO: Implement temporary invincibility
+            return { ...prev, health: Math.min(100, prev.health + 25) };
+          default:
+            return prev;
+        }
+      });
+    }
+  };
+
+  // Knife attack completion handler
+  const handleKnifeAttackComplete = (attackId: string) => {
+    setKnifeAttacks(prev => prev.filter(k => k.id !== attackId));
   };
 
   // Handle camera ready callback
@@ -600,7 +931,8 @@ export default function Game() {
         <div className="bg-black bg-opacity-50 p-4 rounded-lg">
           <div>Health: {gameState.health}/100</div>
           <div>Score: {gameState.score}</div>
-          <div>Coconuts: {gameState.coconuts}</div>
+          <div>💰 Money: ${gameState.money}</div>
+          <div>🥥 Coconuts: {gameState.coconuts}</div>
           <div>Wave: {gameState.wave}</div>
           <div>Enemies: {aliveEnemies.length}</div>
         </div>
@@ -612,6 +944,7 @@ export default function Game() {
           <div>WASD: Move</div>
           <div>Mouse: Look Around</div>
           <div>Click: {isPointerLocked ? 'Shoot Coconut' : 'Lock Mouse'}</div>
+          <div>Space: Knife Attack</div>
           {isPointerLocked && <div className="text-green-400">Mouse Locked ✓</div>}
         </div>
       </div>
@@ -663,6 +996,32 @@ export default function Game() {
             key={explosion.id}
             position={explosion.position}
             onComplete={() => handleExplosionComplete(explosion.id)}
+          />
+        ))}
+        
+        {moneyDrops.map(money => (
+          <MoneyDropComponent
+            key={money.id}
+            money={money}
+            playerPosition={playerPosition}
+            onCollect={handleMoneyCollect}
+          />
+        ))}
+        
+        {lootBoxes.map(lootBox => (
+          <LootBoxComponent
+            key={lootBox.id}
+            lootBox={lootBox}
+            playerPosition={playerPosition}
+            onCollect={handleLootBoxCollect}
+          />
+        ))}
+        
+        {knifeAttacks.map(attack => (
+          <KnifeAttackComponent
+            key={attack.id}
+            attack={attack}
+            onComplete={handleKnifeAttackComplete}
           />
         ))}
         

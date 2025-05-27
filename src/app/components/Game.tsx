@@ -1249,8 +1249,8 @@ export default function Game() {
           <h1 className="text-4xl font-bold text-white mb-6 text-center">🏪 GORILLA SHOP 🏪</h1>
           <div className="text-2xl text-green-400 mb-6 text-center">💰 Money: ${gameState.money}</div>
           
-          <div className="flex-1 overflow-y-auto pr-2 mb-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="flex-1 overflow-y-auto mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
             {shopItems.map(item => {
               const canAfford = gameState.money >= item.price;
               const alreadyOwned = item.id === 'coconuts' && gameState.weapons.coconuts;

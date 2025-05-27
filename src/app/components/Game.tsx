@@ -24,8 +24,11 @@ interface GameState {
   gameOver: boolean;
   wave: number;
   betweenWaves: boolean;
+  waveTimer: number;
+  shopOpen: boolean;
   weapons: {
     knife: boolean;
+    coconuts: boolean;
     dualCoconuts: boolean;
     explosiveCoconuts: boolean;
     rapidFire: boolean;
@@ -35,6 +38,7 @@ interface GameState {
     speedBoost: number;
     magneticRange: number;
     damageMultiplier: number;
+    blastRadius: number;
   };
 }
 
@@ -115,10 +119,11 @@ function FortniteMouseLook({ playerPosition, cameraRotation, onCameraReady }: {
 }
 
 // Third Person Player Component
-function ThirdPersonPlayer({ position, onMove, cameraRotation }: { 
+function ThirdPersonPlayer({ position, onMove, cameraRotation, gameState }: { 
   position: [number, number, number], 
   onMove: (pos: [number, number, number]) => void,
-  cameraRotation: React.RefObject<{ theta: number, phi: number }>
+  cameraRotation: React.RefObject<{ theta: number, phi: number }>,
+  gameState: GameState
 }) {
   const ref = useRef<THREE.Group>(null);
   const { camera } = useThree();
@@ -127,7 +132,10 @@ function ThirdPersonPlayer({ position, onMove, cameraRotation }: {
   useFrame((state, delta) => {
     if (ref.current) {
       const keys = (window as any).gameKeys || {};
-      const speed = 8 * delta;
+      // Apply speed boost from upgrades
+      const baseSpeed = 8;
+      const speedMultiplier = 1 + (gameState.perks.speedBoost * 0.5); // Each upgrade adds 50% speed
+      const speed = baseSpeed * speedMultiplier * delta;
       
       // Get camera direction for movement
       const cameraDirection = new THREE.Vector3();
@@ -299,8 +307,72 @@ function SimpleCoconut({ coconut, onHit }: {
   );
 }
 
+// Shop Building Component
+function ShopBuilding({ playerPosition, onShopInteract }: {
+  playerPosition: [number, number, number],
+  onShopInteract: () => void
+}) {
+  const shopPosition: [number, number, number] = [15, 0, 15];
+  const [showPrompt, setShowPrompt] = useState(false);
+  
+  useFrame(() => {
+    const dx = playerPosition[0] - shopPosition[0];
+    const dz = playerPosition[2] - shopPosition[2];
+    const distance = Math.sqrt(dx * dx + dz * dz);
+    
+    setShowPrompt(distance < 5);
+  });
+  
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.code === 'KeyF' && showPrompt) {
+        onShopInteract();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [showPrompt, onShopInteract]);
+  
+  return (
+    <group position={shopPosition}>
+      {/* Shop Building */}
+      <Box args={[6, 4, 6]} position={[0, 2, 0]}>
+        <meshStandardMaterial color="#8B4513" roughness={0.8} />
+      </Box>
+      {/* Roof */}
+      <Box args={[7, 1, 7]} position={[0, 4.5, 0]}>
+        <meshStandardMaterial color="#654321" roughness={0.9} />
+      </Box>
+      {/* Door */}
+      <Box args={[1.5, 3, 0.2]} position={[0, 1.5, 3.1]}>
+        <meshStandardMaterial color="#4A4A4A" roughness={0.8} />
+      </Box>
+      {/* Sign */}
+      <Box args={[3, 1, 0.2]} position={[0, 3.5, 3.1]}>
+        <meshStandardMaterial color="#FFFFFF" />
+      </Box>
+      
+      {/* Interaction Prompt */}
+      {showPrompt && (
+        <group position={[0, 6, 0]}>
+          <Plane args={[4, 1]} position={[0, 0, 0]}>
+            <meshBasicMaterial color="#000000" transparent opacity={0.7} />
+          </Plane>
+          <Plane args={[3.8, 0.8]} position={[0, 0, 0.01]}>
+            <meshBasicMaterial color="#FFFFFF" />
+          </Plane>
+        </group>
+      )}
+    </group>
+  );
+}
+
 // Simple Environment
-function SimpleEnvironment() {
+function SimpleEnvironment({ playerPosition, onShopInteract }: {
+  playerPosition: [number, number, number],
+  onShopInteract: () => void
+}) {
   // Memoize tree positions to prevent re-rendering
   const treePositions = useMemo(() => {
     return Array.from({ length: 15 }, (_, i) => ({
@@ -336,6 +408,9 @@ function SimpleEnvironment() {
         </Box>
       </group>
       
+      {/* Shop Building */}
+      <ShopBuilding playerPosition={playerPosition} onShopInteract={onShopInteract} />
+      
       <Stars radius={100} depth={50} count={1000} factor={4} saturation={0} fade speed={1} />
     </group>
   );
@@ -349,29 +424,51 @@ function MoneyDropComponent({ money, playerPosition, onCollect }: {
 }) {
   const ref = useRef<THREE.Group>(null);
   const bobOffset = useRef(Math.random() * Math.PI * 2);
+  const isBeingPulled = useRef(false);
+  const velocity = useRef({ x: 0, z: 0 });
   
   useFrame((state, delta) => {
     if (ref.current && !money.collected) {
-      // Bobbing animation
-      ref.current.position.y = money.position[1] + Math.sin(state.clock.elapsedTime * 3 + bobOffset.current) * 0.2;
-      
-      // Magnetic pull towards player
+      // Calculate distance to player
       const dx = playerPosition[0] - money.position[0];
       const dz = playerPosition[2] - money.position[2];
       const distance = Math.sqrt(dx * dx + dz * dz);
       
-      if (distance < 5) { // Magnetic range
-        const pullStrength = 0.1;
-        money.position[0] += dx * pullStrength;
-        money.position[2] += dz * pullStrength;
+      // Magnetic range check - once pulled, always stay pulled until collected
+      if (distance < 6 || isBeingPulled.current) {
+        isBeingPulled.current = true;
         
-        if (distance < 1) {
+        // Direct movement towards player (no physics, just smooth interpolation)
+        const moveSpeed = Math.min(0.8, 5 / Math.max(distance, 0.1)) * delta * 60;
+        
+        // Move directly towards player position
+        const directionX = dx / Math.max(distance, 0.001);
+        const directionZ = dz / Math.max(distance, 0.001);
+        
+        money.position[0] += directionX * moveSpeed;
+        money.position[2] += directionZ * moveSpeed;
+        
+        // Check for collection (smaller radius for actual collection)
+        if (distance < 0.8) {
           onCollect(money.id);
+          return;
         }
       }
       
-      // Rotation
-      ref.current.rotation.y += delta * 2;
+      // Update visual position
+      ref.current.position.set(money.position[0], money.position[1], money.position[2]);
+      
+      // Bobbing animation (less when being pulled)
+      const bobIntensity = isBeingPulled.current ? 0.1 : 0.2;
+      ref.current.position.y = money.position[1] + Math.sin(state.clock.elapsedTime * 3 + bobOffset.current) * bobIntensity;
+      
+      // Rotation (faster when being pulled)
+      const rotationSpeed = isBeingPulled.current ? 8 : 2;
+      ref.current.rotation.y += delta * rotationSpeed;
+      
+      // Scale effect when being pulled
+      const scale = isBeingPulled.current ? 1 + Math.sin(state.clock.elapsedTime * 10) * 0.1 : 1;
+      ref.current.scale.setScalar(scale);
     }
   });
 
@@ -385,6 +482,12 @@ function MoneyDropComponent({ money, playerPosition, onCollect }: {
       <Box args={[0.4, 0.2, 0.05]} position={[0, 0, 0]}>
         <meshStandardMaterial color="#FFFFFF" />
       </Box>
+      {/* Glowing effect when being magnetized */}
+      {isBeingPulled.current && (
+        <Sphere args={[0.8]} position={[0, 0, 0]}>
+          <meshBasicMaterial color="#00FF00" transparent opacity={0.2} />
+        </Sphere>
+      )}
     </group>
   );
 }
@@ -490,25 +593,36 @@ function KnifeAttackComponent({ attack, onComplete, onHit }: {
 }
 
 // Explosion Effect
-function Explosion({ position, onComplete }: { position: [number, number, number], onComplete: () => void }) {
+function Explosion({ position, blastRadius, onComplete }: { position: [number, number, number], blastRadius: number, onComplete: () => void }) {
   const ref = useRef<THREE.Group>(null);
   const scale = useRef(0);
   
+  // Scale animation duration with blast radius - bigger explosions last longer
+  const animationSpeed = 8 / (blastRadius / 5); // Slower for larger blasts
+  const maxScale = 1.5 + (blastRadius / 10); // Larger explosions reach higher scale
+  
   useFrame((state, delta) => {
     if (ref.current) {
-      scale.current += delta * 8;
-      if (scale.current > 2) {
+      scale.current += delta * animationSpeed;
+      if (scale.current > maxScale) {
         onComplete();
         return;
       }
       ref.current.scale.setScalar(scale.current);
+      
+      // Fade out towards the end
+      const fadeProgress = scale.current / maxScale;
+      const opacity = fadeProgress < 0.7 ? 0.8 : 0.8 * (1 - (fadeProgress - 0.7) / 0.3);
+      if (ref.current.children[0]) {
+        (ref.current.children[0] as any).material.opacity = opacity;
+      }
     }
   });
 
   return (
     <group ref={ref} position={position}>
-      <Sphere args={[2]} position={[0, 0, 0]}>
-        <meshBasicMaterial color="orange" transparent opacity={0.7} />
+      <Sphere args={[blastRadius / 2.5]} position={[0, 0, 0]}>
+        <meshBasicMaterial color="orange" transparent opacity={0.8} />
       </Sphere>
     </group>
   );
@@ -519,15 +633,18 @@ export default function Game() {
   const [gameState, setGameState] = useState<GameState>({
     health: 100,
     score: 0,
-    coconuts: 10,
-    money: 0,
+    coconuts: 0, // Start with 0 coconuts - must be purchased
+    money: 100, // Start with some money for first purchase
     enemies: [],
     gameStarted: false,
     gameOver: false,
     wave: 1,
     betweenWaves: false,
+    waveTimer: 60,
+    shopOpen: false,
     weapons: {
       knife: true,
+      coconuts: false, // Coconuts must be unlocked
       dualCoconuts: false,
       explosiveCoconuts: false,
       rapidFire: false
@@ -536,7 +653,8 @@ export default function Game() {
       healthBoost: 0,
       speedBoost: 0,
       magneticRange: 3,
-      damageMultiplier: 1
+      damageMultiplier: 1,
+      blastRadius: 5
     }
   });
 
@@ -594,7 +712,9 @@ export default function Game() {
           const distance = Math.sqrt(dx * dx + dz * dz);
           
           if (distance < 3) { // Knife range
-            const newHealth = enemy.health - 75; // High knife damage
+            const baseDamage = 75;
+            const actualDamage = baseDamage * gameState.perks.damageMultiplier;
+            const newHealth = enemy.health - actualDamage;
             if (newHealth <= 0) {
               // Drop money when enemy dies
               const moneyValue = 50 + Math.floor(Math.random() * 50);
@@ -736,7 +856,7 @@ export default function Game() {
   };
 
   const throwCoconut = () => {
-    if (gameState.coconuts > 0 && cameraRef.current) {
+    if (gameState.weapons.coconuts && gameState.coconuts > 0 && cameraRef.current) {
       // Get the actual camera direction vector
       const direction = new THREE.Vector3();
       cameraRef.current.getWorldDirection(direction);
@@ -777,8 +897,10 @@ export default function Game() {
           Math.pow(currentPos[2] - position[2], 2)
         );
         
-        if (distance < 5) {
-          const newHealth = enemy.health - 50;
+        if (distance < prev.perks.blastRadius) {
+          const baseDamage = 50;
+          const actualDamage = baseDamage * gameState.perks.damageMultiplier;
+          const newHealth = enemy.health - actualDamage;
           if (newHealth <= 0) {
             // Drop money when enemy dies from coconut
             const moneyValue = 50 + Math.floor(Math.random() * 50);
@@ -921,6 +1043,41 @@ export default function Game() {
     }
   };
 
+  // Between-wave timer
+  useEffect(() => {
+    if (gameState.betweenWaves && gameState.waveTimer > 0) {
+      const timer = setTimeout(() => {
+        setGameState(prev => ({ ...prev, waveTimer: prev.waveTimer - 1 }));
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (gameState.betweenWaves && gameState.waveTimer <= 0) {
+      // Start next wave automatically
+      setGameState(prev => ({
+        ...prev,
+        betweenWaves: false,
+        waveTimer: 60,
+        enemies: []
+      }));
+    }
+  }, [gameState.betweenWaves, gameState.waveTimer]);
+
+  // Enter key to start wave early
+  useEffect(() => {
+    const handleEnterKey = (event: KeyboardEvent) => {
+      if (event.code === 'Enter' && gameState.betweenWaves) {
+        setGameState(prev => ({
+          ...prev,
+          betweenWaves: false,
+          waveTimer: 60,
+          enemies: []
+        }));
+      }
+    };
+    
+    window.addEventListener('keydown', handleEnterKey);
+    return () => window.removeEventListener('keydown', handleEnterKey);
+  }, [gameState.betweenWaves]);
+
   // Check win/lose conditions
   useEffect(() => {
     if (gameState.health <= 0) {
@@ -928,17 +1085,16 @@ export default function Game() {
     }
     
     const aliveEnemies = gameState.enemies.filter(e => e.alive);
-    if (aliveEnemies.length === 0 && gameState.gameStarted && gameState.enemies.length > 0) {
-      setTimeout(() => {
-        setGameState(prev => ({
-          ...prev,
-          wave: prev.wave + 1,
-          coconuts: prev.coconuts + 5,
-          enemies: []
-        }));
-      }, 2000);
+    if (aliveEnemies.length === 0 && gameState.gameStarted && gameState.enemies.length > 0 && !gameState.betweenWaves) {
+      // Start between-wave period
+      setGameState(prev => ({
+        ...prev,
+        wave: prev.wave + 1,
+        betweenWaves: true,
+        waveTimer: 60
+      }));
     }
-  }, [gameState.enemies, gameState.health, gameState.gameStarted]);
+  }, [gameState.enemies, gameState.health, gameState.gameStarted, gameState.betweenWaves]);
 
   if (!gameState.gameStarted) {
     return (
@@ -980,6 +1136,96 @@ export default function Game() {
 
   const aliveEnemies = gameState.enemies.filter(e => e.alive);
 
+
+
+  // Shop interface
+  if (gameState.shopOpen) {
+    const shopItems = [
+      { id: 'coconuts', name: '🥥 Coconut Launcher', price: 50, description: 'Unlock explosive coconut projectiles' },
+      { id: 'health', name: '❤️ Health Pack', price: 30, description: 'Restore 50 health' },
+      { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 25, description: '10 explosive coconuts' },
+      { id: 'speed', name: '🏃 Speed Boost', price: 75, description: 'Permanent movement speed increase' },
+      { id: 'damage', name: '⚔️ Damage Boost', price: 100, description: 'Increase all damage by 50%' },
+      { id: 'blast-radius', name: '💥 Blast Radius', price: 125, description: 'Increase coconut explosion radius by 3 units' }
+    ];
+
+    const buyItem = (itemId: string, price: number) => {
+      if (gameState.money >= price) {
+        setGameState(prev => {
+          const newState = { ...prev, money: prev.money - price };
+          
+          switch (itemId) {
+            case 'coconuts':
+              newState.weapons.coconuts = true;
+              newState.coconuts = prev.coconuts + 5;
+              break;
+            case 'health':
+              newState.health = Math.min(100, prev.health + 50);
+              break;
+            case 'coconut-ammo':
+              newState.coconuts = prev.coconuts + 10;
+              break;
+            case 'speed':
+              newState.perks.speedBoost = prev.perks.speedBoost + 1;
+              break;
+            case 'damage':
+              newState.perks.damageMultiplier = prev.perks.damageMultiplier + 0.5;
+              break;
+            case 'blast-radius':
+              newState.perks.blastRadius = prev.perks.blastRadius + 3;
+              break;
+          }
+          
+          return newState;
+        });
+      }
+    };
+
+    return (
+      <div className="w-full h-screen bg-gradient-to-b from-amber-900 to-amber-700 flex items-center justify-center">
+        <div className="bg-black bg-opacity-80 p-8 rounded-lg max-w-4xl w-full mx-4">
+          <h1 className="text-4xl font-bold text-white mb-6 text-center">🏪 GORILLA SHOP 🏪</h1>
+          <div className="text-2xl text-green-400 mb-6 text-center">💰 Money: ${gameState.money}</div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            {shopItems.map(item => {
+              const canAfford = gameState.money >= item.price;
+              const alreadyOwned = item.id === 'coconuts' && gameState.weapons.coconuts;
+              
+              return (
+                <div key={item.id} className={`p-4 rounded-lg border-2 ${
+                  alreadyOwned ? 'bg-green-800 border-green-600' :
+                  canAfford ? 'bg-gray-800 border-green-500 hover:bg-gray-700 cursor-pointer' :
+                  'bg-gray-900 border-red-500 opacity-50'
+                }`}
+                onClick={() => !alreadyOwned && canAfford && buyItem(item.id, item.price)}
+                >
+                  <div className="text-xl font-bold text-white mb-2">{item.name}</div>
+                  <div className="text-gray-300 mb-2">{item.description}</div>
+                  <div className={`text-lg font-bold ${
+                    alreadyOwned ? 'text-green-400' :
+                    canAfford ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {alreadyOwned ? 'OWNED' : `${item.price}`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="text-center">
+            <button 
+              onClick={() => setGameState(prev => ({ ...prev, shopOpen: false }))}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-xl"
+            >
+              Close Shop
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-screen relative">
       {/* Game UI */}
@@ -1005,6 +1251,48 @@ export default function Game() {
         </div>
       </div>
 
+      {/* Between-wave overlay - positioned around edges */}
+      {gameState.betweenWaves && (
+        <>
+          {/* Top banner */}
+          <div className="absolute top-0 left-0 w-full bg-[rgba(0,0,0,0.5)] z-20 p-4">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-white mb-2">🛡️ WAVE {gameState.wave} COMPLETE! 🛡️</h1>
+              <div className="text-xl text-blue-200">Next wave starts in: {gameState.waveTimer}s</div>
+            </div>
+          </div>
+          
+          {/* Left side panel */}
+          <div className="absolute top-20 left-0 bg-black bg-opacity-80 z-20 p-4 rounded-r-lg">
+            <div className="text-white">
+              <div className="text-lg font-bold mb-2">💰 Resources</div>
+              <div className="text-green-400">Money: ${gameState.money}</div>
+              <div className="text-orange-400">Coconuts: {gameState.coconuts}</div>
+            </div>
+          </div>
+          
+          {/* Right side panel */}
+          <div className="absolute top-20 right-0 bg-black bg-opacity-80 z-20 p-4 rounded-l-lg">
+            <div className="text-white">
+              <div className="text-lg font-bold mb-2">📊 Stats</div>
+              <div className="text-green-400">Health: {gameState.health}/100</div>
+              <div className="text-yellow-400">Score: {gameState.score}</div>
+              <div className="text-purple-400">Speed: +{gameState.perks.speedBoost}</div>
+              <div className="text-red-400">Damage: {gameState.perks.damageMultiplier}x</div>
+              <div className="text-orange-400">Blast: {gameState.perks.blastRadius} units</div>
+            </div>
+          </div>
+          
+          {/* Bottom instructions */}
+          <div className="absolute bottom-0 left-0 w-full bg-[rgba(0,0,0,0.5)] z-20 p-3">
+            <div className="text-center text-white">
+              <div className="text-lg mb-1">🏪 Walk to the shop (brown building) and press F to buy upgrades!</div>
+              <div className="text-md text-blue-300">Press ENTER to start the next wave early</div>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Crosshair */}
       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
         <div className="w-4 h-4 border-2 border-white rounded-full opacity-50"></div>
@@ -1021,12 +1309,16 @@ export default function Game() {
         <directionalLight position={[10, 10, 5]} intensity={1} />
         <pointLight position={[-10, 10, -10]} intensity={0.5} />
         
-        <SimpleEnvironment />
+        <SimpleEnvironment 
+          playerPosition={playerPosition}
+          onShopInteract={() => setGameState(prev => ({ ...prev, shopOpen: true }))}
+        />
         
         <ThirdPersonPlayer 
           position={[0, 0, 0]} 
           onMove={setPlayerPosition}
           cameraRotation={cameraRotation}
+          gameState={gameState}
         />
         
         {aliveEnemies.map(enemy => (
@@ -1051,6 +1343,7 @@ export default function Game() {
           <Explosion
             key={explosion.id}
             position={explosion.position}
+            blastRadius={gameState.perks.blastRadius}
             onComplete={() => handleExplosionComplete(explosion.id)}
           />
         ))}

@@ -29,16 +29,20 @@ interface GameState {
   weapons: {
     knife: boolean;
     coconuts: boolean;
-    dualCoconuts: boolean;
-    explosiveCoconuts: boolean;
-    rapidFire: boolean;
+    bananaBoomerang: boolean;
+    pineappleGrenade: boolean;
+    watermelonCannon: boolean;
+    durian: boolean;
+    vineWhip: boolean;
   };
   perks: {
-    healthBoost: number;
-    speedBoost: number;
+    maxHealth: number;
+    moveSpeed: number;
     magneticRange: number;
-    damageMultiplier: number;
+    baseDamage: number;
     blastRadius: number;
+    attackSpeed: number;
+    criticalChance: number;
   };
 }
 
@@ -134,7 +138,7 @@ function ThirdPersonPlayer({ position, onMove, cameraRotation, gameState }: {
       const keys = (window as any).gameKeys || {};
       // Apply speed boost from upgrades
       const baseSpeed = 8;
-      const speedMultiplier = 1 + (gameState.perks.speedBoost * 0.5); // Each upgrade adds 50% speed
+      const speedMultiplier = gameState.perks.moveSpeed; // Use direct speed multiplier
       const speed = baseSpeed * speedMultiplier * delta;
       
       // Get camera direction for movement
@@ -645,16 +649,20 @@ export default function Game() {
     weapons: {
       knife: true,
       coconuts: false, // Coconuts must be unlocked
-      dualCoconuts: false,
-      explosiveCoconuts: false,
-      rapidFire: false
+      bananaBoomerang: false,
+      pineappleGrenade: false,
+      watermelonCannon: false,
+      durian: false,
+      vineWhip: false
     },
     perks: {
-      healthBoost: 0,
-      speedBoost: 0,
-      magneticRange: 3,
-      damageMultiplier: 1,
-      blastRadius: 5
+      maxHealth: 100,
+      moveSpeed: 1.0,
+      magneticRange: 6,
+      baseDamage: 50,
+      blastRadius: 5,
+      attackSpeed: 1.0,
+      criticalChance: 0.1
     }
   });
 
@@ -713,7 +721,7 @@ export default function Game() {
           
           if (distance < 3) { // Knife range
             const baseDamage = 75;
-            const actualDamage = baseDamage * gameState.perks.damageMultiplier;
+            const actualDamage = baseDamage * (gameState.perks.baseDamage / 50); // Scale with base damage
             const newHealth = enemy.health - actualDamage;
             if (newHealth <= 0) {
               // Drop money when enemy dies
@@ -899,7 +907,7 @@ export default function Game() {
         
         if (distance < prev.perks.blastRadius) {
           const baseDamage = 50;
-          const actualDamage = baseDamage * gameState.perks.damageMultiplier;
+          const actualDamage = baseDamage * (gameState.perks.baseDamage / 50); // Scale with base damage
           const newHealth = enemy.health - actualDamage;
           if (newHealth <= 0) {
             // Drop money when enemy dies from coconut
@@ -958,9 +966,9 @@ export default function Game() {
           case 'health':
             return { ...prev, health: Math.min(100, prev.health + 50) };
           case 'speed':
-            return { ...prev, perks: { ...prev.perks, speedBoost: prev.perks.speedBoost + 1 } };
+            return { ...prev, perks: { ...prev.perks, moveSpeed: prev.perks.moveSpeed + 0.2 } };
           case 'damage':
-            return { ...prev, perks: { ...prev.perks, damageMultiplier: prev.perks.damageMultiplier + 0.5 } };
+            return { ...prev, perks: { ...prev.perks, baseDamage: prev.perks.baseDamage + 25 } };
           case 'coconuts':
             return { ...prev, coconuts: prev.coconuts + 10 };
           case 'money':
@@ -1166,10 +1174,10 @@ export default function Game() {
               newState.coconuts = prev.coconuts + 10;
               break;
             case 'speed':
-              newState.perks.speedBoost = prev.perks.speedBoost + 1;
+              newState.perks.moveSpeed = prev.perks.moveSpeed + 0.2;
               break;
             case 'damage':
-              newState.perks.damageMultiplier = prev.perks.damageMultiplier + 0.5;
+              newState.perks.baseDamage = prev.perks.baseDamage + 25;
               break;
             case 'blast-radius':
               newState.perks.blastRadius = prev.perks.blastRadius + 3;
@@ -1277,8 +1285,8 @@ export default function Game() {
               <div className="text-lg font-bold mb-2">📊 Stats</div>
               <div className="text-green-400">Health: {gameState.health}/100</div>
               <div className="text-yellow-400">Score: {gameState.score}</div>
-              <div className="text-purple-400">Speed: +{gameState.perks.speedBoost}</div>
-              <div className="text-red-400">Damage: {gameState.perks.damageMultiplier}x</div>
+              <div className="text-purple-400">Speed: {gameState.perks.moveSpeed.toFixed(1)}x</div>
+              <div className="text-red-400">Damage: {gameState.perks.baseDamage}</div>
               <div className="text-orange-400">Blast: {gameState.perks.blastRadius} units</div>
             </div>
           </div>

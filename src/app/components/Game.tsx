@@ -1245,11 +1245,12 @@ export default function Game() {
 
     return (
       <div className="w-full h-screen bg-gradient-to-b from-amber-900 to-amber-700 flex items-center justify-center">
-        <div className="bg-black bg-opacity-80 p-8 rounded-lg max-w-4xl w-full mx-4">
+        <div className="bg-black bg-opacity-90 p-6 rounded-lg max-w-6xl w-full mx-4 h-[90vh] flex flex-col">
           <h1 className="text-4xl font-bold text-white mb-6 text-center">🏪 GORILLA SHOP 🏪</h1>
           <div className="text-2xl text-green-400 mb-6 text-center">💰 Money: ${gameState.money}</div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <div className="flex-1 overflow-y-auto pr-2 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {shopItems.map(item => {
               const canAfford = gameState.money >= item.price;
               const alreadyOwned = item.id === 'coconuts' && gameState.weapons.coconuts;
@@ -1273,6 +1274,7 @@ export default function Game() {
                 </div>
               );
             })}
+            </div>
           </div>
           
           <div className="text-center">

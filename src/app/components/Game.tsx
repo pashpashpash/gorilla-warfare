@@ -445,24 +445,72 @@ function AdvancedEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: {
   );
 }
 
-// Simple Coconut Component
-function SimpleCoconut({ coconut, onHit }: { 
+// Advanced Projectile Component with Different Types
+function AdvancedProjectile({ coconut, onHit, playerPosition }: { 
   coconut: Coconut, 
-  onHit: (coconutId: string, position: [number, number, number]) => void 
+  onHit: (coconutId: string, position: [number, number, number]) => void,
+  playerPosition: [number, number, number]
 }) {
   const ref = useRef<THREE.Group>(null);
   const coconutPos = useRef([...coconut.position]);
   const life = useRef(coconut.life);
+  const originalLife = useRef(coconut.life);
+  const isReturning = useRef(false);
+  const initialVelocity = useRef([...coconut.velocity]);
   
   useFrame((state, delta) => {
     if (ref.current) {
+      const projectileType = coconut.projectileType || 'coconuts';
+      
+      // Banana boomerang special behavior
+      if (projectileType === 'bananaBoomerang') {
+        const lifeProgress = 1 - (life.current / originalLife.current);
+        
+        // Start returning after 60% of life
+        if (lifeProgress > 0.6 && !isReturning.current) {
+          isReturning.current = true;
+          // Calculate return velocity toward player
+          const dx = playerPosition[0] - coconutPos.current[0];
+          const dy = playerPosition[1] - coconutPos.current[1];
+          const dz = playerPosition[2] - coconutPos.current[2];
+          const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          
+          if (distance > 0) {
+            const returnSpeed = 25; // Faster return
+            coconut.velocity[0] = (dx / distance) * returnSpeed;
+            coconut.velocity[1] = (dy / distance) * returnSpeed + 2; // Slight upward arc
+            coconut.velocity[2] = (dz / distance) * returnSpeed;
+          }
+        }
+        
+        // Check if returned to player
+        if (isReturning.current) {
+          const distanceToPlayer = Math.sqrt(
+            Math.pow(coconutPos.current[0] - playerPosition[0], 2) +
+            Math.pow(coconutPos.current[1] - playerPosition[1], 2) +
+            Math.pow(coconutPos.current[2] - playerPosition[2], 2)
+          );
+          
+          if (distanceToPlayer < 2) {
+            // Collected by player - don't explode
+            onHit(coconut.id, [...coconutPos.current]);
+            return;
+          }
+        }
+        
+        // Spinning animation for boomerang
+        ref.current.rotation.x += delta * 15;
+        ref.current.rotation.z += delta * 10;
+      }
+      
       // Update position
       coconutPos.current[0] += coconut.velocity[0] * delta;
       coconutPos.current[1] += coconut.velocity[1] * delta;
       coconutPos.current[2] += coconut.velocity[2] * delta;
       
-      // Apply gravity
-      coconut.velocity[1] -= 15 * delta;
+      // Apply gravity (less for banana boomerang when returning)
+      const gravityMultiplier = (projectileType === 'bananaBoomerang' && isReturning.current) ? 0.3 : 1;
+      coconut.velocity[1] -= 15 * delta * gravityMultiplier;
       
       // Check if hit ground or expired
       life.current -= delta;
@@ -475,11 +523,103 @@ function SimpleCoconut({ coconut, onHit }: {
     }
   });
 
+  // Different appearances for different projectile types
+  const getProjectileAppearance = () => {
+    switch (coconut.projectileType) {
+      case 'bananaBoomerang':
+        return {
+          shape: 'curved',
+          color: '#FFFF00',
+          size: [0.15, 0.6, 0.15],
+          emissive: '#444400'
+        };
+      case 'watermelonCannon':
+        return {
+          shape: 'sphere',
+          color: '#228B22',
+          size: [0.4, 0.4, 0.4],
+          emissive: '#001100'
+        };
+      case 'pineappleGrenade':
+        return {
+          shape: 'pineapple',
+          color: '#DAA520',
+          size: [0.25, 0.35, 0.25],
+          emissive: '#332200'
+        };
+      case 'durian':
+        return {
+          shape: 'spiky',
+          color: '#8B7D6B',
+          size: [0.3, 0.3, 0.3],
+          emissive: '#221100'
+        };
+      default: // coconuts
+        return {
+          shape: 'sphere',
+          color: '#8B4513',
+          size: [0.2, 0.2, 0.2],
+          emissive: '#000000'
+        };
+    }
+  };
+  
+  const appearance = getProjectileAppearance();
+
   return (
     <group ref={ref} position={coconut.position}>
-      <Sphere args={[0.2]} position={[0, 0, 0]}>
-        <meshStandardMaterial color="#8B4513" roughness={0.9} />
-      </Sphere>
+      {/* Main projectile body */}
+      {appearance.shape === 'curved' ? (
+        // Banana shape - curved box
+        <>
+          <Box args={appearance.size} position={[0, 0, 0]} rotation={[0, 0, Math.PI / 6]}>
+            <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.7} />
+          </Box>
+          <Box args={[0.1, 0.4, 0.1]} position={[0.1, 0.2, 0]} rotation={[0, 0, Math.PI / 4]}>
+            <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.7} />
+          </Box>
+        </>
+      ) : appearance.shape === 'pineapple' ? (
+        // Pineapple shape - textured
+        <>
+          <Box args={appearance.size} position={[0, 0, 0]}>
+            <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.8} />
+          </Box>
+          {/* Pineapple crown */}
+          <Box args={[0.1, 0.2, 0.1]} position={[0, 0.25, 0]}>
+            <meshStandardMaterial color="#228B22" roughness={0.9} />
+          </Box>
+        </>
+      ) : appearance.shape === 'spiky' ? (
+        // Durian shape - spiky
+        <>
+          <Sphere args={appearance.size} position={[0, 0, 0]}>
+            <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.9} />
+          </Sphere>
+          {/* Spikes */}
+          <Box args={[0.05, 0.15, 0.05]} position={[0.2, 0, 0]}>
+            <meshStandardMaterial color="#654321" roughness={0.9} />
+          </Box>
+          <Box args={[0.05, 0.15, 0.05]} position={[-0.2, 0, 0]}>
+            <meshStandardMaterial color="#654321" roughness={0.9} />
+          </Box>
+          <Box args={[0.05, 0.15, 0.05]} position={[0, 0.2, 0]}>
+            <meshStandardMaterial color="#654321" roughness={0.9} />
+          </Box>
+        </>
+      ) : (
+        // Default sphere shape
+        <Sphere args={appearance.size} position={[0, 0, 0]}>
+          <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.9} />
+        </Sphere>
+      )}
+      
+      {/* Trail effect for fast projectiles */}
+      {(coconut.projectileType === 'watermelonCannon' || coconut.projectileType === 'bananaBoomerang') && (
+        <Sphere args={[0.1]} position={[-0.3, 0, 0]}>
+          <meshBasicMaterial color={appearance.color} transparent opacity={0.3} />
+        </Sphere>
+      )}
     </group>
   );
 }
@@ -1705,10 +1845,11 @@ export default function Game() {
         ))}
         
         {coconutProjectiles.map(coconut => (
-          <SimpleCoconut
+          <AdvancedProjectile
             key={coconut.id}
             coconut={coconut}
             onHit={handleCoconutHit}
+            playerPosition={playerPosition}
           />
         ))}
         

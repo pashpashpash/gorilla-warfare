@@ -843,7 +843,7 @@ export default function Game() {
           ],
           health: Math.round(enemyHealth),
           type: enemyType,
-          speed: enemyType === 'monkey' ? 4 + Math.random() * 2 : enemyType === 'gorilla' ? 2 + Math.random() : 3 + Math.random() * 2,
+          speed: enemyType === 'monkey' ? 6 + Math.random() * 3 : enemyType === 'gorilla' ? 4 + Math.random() * 2 : 5 + Math.random() * 3,
           alive: true
         });
       }
@@ -1165,12 +1165,25 @@ export default function Game() {
   // Shop interface
   if (gameState.shopOpen) {
     const shopItems = [
-      { id: 'coconuts', name: '🥥 Coconut Launcher', price: 150, description: 'Unlock explosive coconut projectiles' },
-      { id: 'health', name: '❤️ Health Pack', price: 60, description: 'Restore 50 health' },
-      { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 40, description: '10 explosive coconuts' },
-      { id: 'speed', name: '🏃 Speed Boost', price: 150, description: 'Permanent movement speed increase (+20%)' },
-      { id: 'damage', name: '⚔️ Damage Boost', price: 200, description: 'Increase all damage (+25 points)' },
-      { id: 'blast-radius', name: '💥 Blast Radius', price: 250, description: 'Increase coconut explosion radius by 3 units' }
+      // Basic Items
+      { id: 'coconuts', name: '🥥 Coconut Launcher', price: 300, description: 'Unlock explosive coconut projectiles' },
+      { id: 'health', name: '❤️ Health Pack', price: 120, description: 'Restore 50 health' },
+      { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 80, description: '10 explosive coconuts' },
+      
+      // Stat Upgrades (Expensive)
+      { id: 'speed', name: '🏃 Speed Boost', price: 400, description: 'Permanent movement speed increase (+20%)' },
+      { id: 'damage', name: '⚔️ Damage Boost', price: 500, description: 'Increase all damage (+25 points)' },
+      { id: 'blast-radius', name: '💥 Blast Radius', price: 600, description: 'Increase coconut explosion radius by 3 units' },
+      { id: 'max-health', name: '💪 Max Health', price: 450, description: 'Increase maximum health by 25' },
+      { id: 'attack-speed', name: '⚡ Attack Speed', price: 550, description: 'Increase attack speed by 25%' },
+      { id: 'critical-chance', name: '🎯 Critical Chance', price: 700, description: 'Increase critical hit chance by 10%' },
+      
+      // Advanced Weapons (Very Expensive)
+      { id: 'banana-boomerang', name: '🍌 Banana Boomerang', price: 800, description: 'Returning projectile weapon' },
+      { id: 'pineapple-grenade', name: '🍍 Pineapple Grenade', price: 1000, description: 'High-damage area explosive' },
+      { id: 'watermelon-cannon', name: '🍉 Watermelon Cannon', price: 1200, description: 'Heavy artillery weapon' },
+      { id: 'durian', name: '🥭 Durian Bomb', price: 900, description: 'Stink bomb with area denial' },
+      { id: 'vine-whip', name: '🌿 Vine Whip', price: 750, description: 'Melee weapon with extended reach' }
     ];
 
     const buyItem = (itemId: string, price: number) => {
@@ -1197,6 +1210,31 @@ export default function Game() {
               break;
             case 'blast-radius':
               newState.perks.blastRadius = prev.perks.blastRadius + 3;
+              break;
+            case 'max-health':
+              newState.perks.maxHealth = prev.perks.maxHealth + 25;
+              newState.health = Math.min(newState.perks.maxHealth, prev.health + 25);
+              break;
+            case 'attack-speed':
+              newState.perks.attackSpeed = prev.perks.attackSpeed + 0.25;
+              break;
+            case 'critical-chance':
+              newState.perks.criticalChance = prev.perks.criticalChance + 0.1;
+              break;
+            case 'banana-boomerang':
+              newState.weapons.bananaBoomerang = true;
+              break;
+            case 'pineapple-grenade':
+              newState.weapons.pineappleGrenade = true;
+              break;
+            case 'watermelon-cannon':
+              newState.weapons.watermelonCannon = true;
+              break;
+            case 'durian':
+              newState.weapons.durian = true;
+              break;
+            case 'vine-whip':
+              newState.weapons.vineWhip = true;
               break;
           }
           

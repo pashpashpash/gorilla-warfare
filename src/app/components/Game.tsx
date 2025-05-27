@@ -922,8 +922,10 @@ export default function Game() {
           const actualDamage = baseDamage * (gameState.perks.baseDamage / 50); // Scale with base damage
           const newHealth = enemy.health - actualDamage;
           if (newHealth <= 0) {
-            // Drop money when enemy dies from coconut
-            const moneyValue = 50 + Math.floor(Math.random() * 50);
+            // Drop money when enemy dies from coconut - balanced amounts
+            const baseMoneyValue = 15 + Math.floor(Math.random() * 10); // 15-25 base
+            const waveBonus = gameState.wave * 2; // +2 per wave
+            const moneyValue = baseMoneyValue + waveBonus;
             const newMoney: MoneyDrop = {
               id: `money-coconut-${enemy.id}-${Date.now()}`,
               position: [currentPos[0], currentPos[1] + 1, currentPos[2]],
@@ -1016,8 +1018,10 @@ export default function Game() {
         if (distance < 2) { // Knife hit range
           const newHealth = enemy.health - 75; // High knife damage
           if (newHealth <= 0) {
-            // Drop money when enemy dies
-            const moneyValue = 50 + Math.floor(Math.random() * 50);
+            // Drop money when enemy dies - balanced amounts
+            const baseMoneyValue = 15 + Math.floor(Math.random() * 10); // 15-25 base
+            const waveBonus = gameState.wave * 2; // +2 per wave
+            const moneyValue = baseMoneyValue + waveBonus;
             const newMoney: MoneyDrop = {
               id: `money-knife-${enemy.id}-${Date.now()}`,
               position: [currentPos[0], currentPos[1] + 1, currentPos[2]],

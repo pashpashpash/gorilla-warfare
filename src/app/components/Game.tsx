@@ -1052,6 +1052,13 @@ export default function Game() {
 
   const startGame = () => {
     setGameState(prev => ({ ...prev, gameStarted: true }));
+    // Auto-request pointer lock when starting the game
+    setTimeout(() => {
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        canvas.requestPointerLock();
+      }
+    }, 100); // Small delay to ensure canvas is ready
   };
 
   const throwCoconut = () => {
@@ -1458,7 +1465,16 @@ export default function Game() {
           
           <div className="text-center">
             <button 
-              onClick={() => setGameState(prev => ({ ...prev, shopOpen: false }))}
+              onClick={() => {
+                setGameState(prev => ({ ...prev, shopOpen: false }));
+                // Auto-request pointer lock when exiting shop
+                setTimeout(() => {
+                  const canvas = document.querySelector('canvas');
+                  if (canvas) {
+                    canvas.requestPointerLock();
+                  }
+                }, 100);
+              }}
               className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-xl"
             >
               Close Shop

@@ -638,7 +638,7 @@ export default function Game() {
     health: 100,
     score: 0,
     coconuts: 0, // Start with 0 coconuts - must be purchased
-    money: 100, // Start with some money for first purchase
+    money: 50, // Reduced starting money for better balance
     enemies: [],
     gameStarted: false,
     gameOver: false,
@@ -659,7 +659,7 @@ export default function Game() {
       maxHealth: 100,
       moveSpeed: 1.0,
       magneticRange: 6,
-      baseDamage: 50,
+      baseDamage: 30,
       blastRadius: 5,
       attackSpeed: 1.0,
       criticalChance: 0.1
@@ -724,8 +724,10 @@ export default function Game() {
             const actualDamage = baseDamage * (gameState.perks.baseDamage / 50); // Scale with base damage
             const newHealth = enemy.health - actualDamage;
             if (newHealth <= 0) {
-              // Drop money when enemy dies
-              const moneyValue = 50 + Math.floor(Math.random() * 50);
+              // Drop money when enemy dies - balanced amounts
+              const baseMoneyValue = 15 + Math.floor(Math.random() * 10); // 15-25 base
+              const waveBonus = gameState.wave * 2; // +2 per wave
+              const moneyValue = baseMoneyValue + waveBonus;
               const newMoney: MoneyDrop = {
                 id: `money-${enemy.id}-${now}`,
                 position: [currentPos[0], currentPos[1] + 1, currentPos[2]],
@@ -822,6 +824,16 @@ export default function Game() {
         const angle = (i / enemyCount) * Math.PI * 2;
         const distance = 15 + Math.random() * 10;
         
+        const enemyType = ['ape', 'gorilla', 'monkey'][Math.floor(Math.random() * 3)] as 'ape' | 'gorilla' | 'monkey';
+        
+        // Balanced enemy scaling: Base 80 HP + 20 per wave
+        const baseHealth = 80 + (gameState.wave - 1) * 20;
+        let enemyHealth = baseHealth;
+        
+        // Different health multipliers by type
+        if (enemyType === 'monkey') enemyHealth *= 0.8; // Faster, weaker
+        else if (enemyType === 'gorilla') enemyHealth *= 1.5; // Slower, tankier
+        
         newEnemies.push({
           id: `enemy-${gameState.wave}-${i}`,
           position: [
@@ -829,9 +841,9 @@ export default function Game() {
             0,
             Math.sin(angle) * distance
           ],
-          health: 100,
-          type: ['ape', 'gorilla', 'monkey'][Math.floor(Math.random() * 3)] as 'ape' | 'gorilla' | 'monkey',
-          speed: 3 + Math.random() * 2,
+          health: Math.round(enemyHealth),
+          type: enemyType,
+          speed: enemyType === 'monkey' ? 4 + Math.random() * 2 : enemyType === 'gorilla' ? 2 + Math.random() : 3 + Math.random() * 2,
           alive: true
         });
       }
@@ -1149,12 +1161,12 @@ export default function Game() {
   // Shop interface
   if (gameState.shopOpen) {
     const shopItems = [
-      { id: 'coconuts', name: '🥥 Coconut Launcher', price: 50, description: 'Unlock explosive coconut projectiles' },
-      { id: 'health', name: '❤️ Health Pack', price: 30, description: 'Restore 50 health' },
-      { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 25, description: '10 explosive coconuts' },
-      { id: 'speed', name: '🏃 Speed Boost', price: 75, description: 'Permanent movement speed increase' },
-      { id: 'damage', name: '⚔️ Damage Boost', price: 100, description: 'Increase all damage by 50%' },
-      { id: 'blast-radius', name: '💥 Blast Radius', price: 125, description: 'Increase coconut explosion radius by 3 units' }
+      { id: 'coconuts', name: '🥥 Coconut Launcher', price: 150, description: 'Unlock explosive coconut projectiles' },
+      { id: 'health', name: '❤️ Health Pack', price: 60, description: 'Restore 50 health' },
+      { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 40, description: '10 explosive coconuts' },
+      { id: 'speed', name: '🏃 Speed Boost', price: 150, description: 'Permanent movement speed increase (+20%)' },
+      { id: 'damage', name: '⚔️ Damage Boost', price: 200, description: 'Increase all damage (+25 points)' },
+      { id: 'blast-radius', name: '💥 Blast Radius', price: 250, description: 'Increase coconut explosion radius by 3 units' }
     ];
 
     const buyItem = (itemId: string, price: number) => {

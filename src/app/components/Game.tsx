@@ -1087,8 +1087,9 @@ export default function Game() {
   };
 
   const handleCoconutHit = (coconutId: string, position: [number, number, number]) => {
-    // Create explosion
-    setExplosions(prev => [...prev, { id: `explosion-${Date.now()}`, position }]);
+    // Create explosion with unique ID
+    const explosionId = `explosion-${coconutId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setExplosions(prev => [...prev, { id: explosionId, position }]);
     
     // Damage nearby enemies using their current positions
     setGameState(prev => ({

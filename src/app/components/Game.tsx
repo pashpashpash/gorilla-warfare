@@ -1315,7 +1315,7 @@ export default function Game() {
             const waveBonus = gameState.wave * 2; // +2 per wave
             const moneyValue = baseMoneyValue + waveBonus;
             const newMoney: MoneyDrop = {
-              id: `money-knife-${enemy.id}-${Date.now()}`,
+              id: `money-knife-${enemy.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               position: [currentPos[0], currentPos[1] + 1, currentPos[2]],
               value: moneyValue,
               collected: false

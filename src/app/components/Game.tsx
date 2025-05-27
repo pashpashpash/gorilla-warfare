@@ -466,33 +466,37 @@ function AdvancedProjectile({ coconut, onHit, playerPosition }: {
       if (projectileType === 'bananaBoomerang') {
         const lifeProgress = 1 - (life.current / originalLife.current);
         
-        // Start returning after 60% of life
-        if (lifeProgress > 0.6 && !isReturning.current) {
+        // Start returning after 40% of life (earlier return)
+        if (lifeProgress > 0.4 && !isReturning.current) {
           isReturning.current = true;
+          console.log('Boomerang starting return phase!');
+        }
+        
+        // Return behavior
+        if (isReturning.current) {
           // Calculate return velocity toward player
           const dx = playerPosition[0] - coconutPos.current[0];
-          const dy = playerPosition[1] - coconutPos.current[1];
+          const dy = playerPosition[1] + 1 - coconutPos.current[1]; // Aim slightly above player
           const dz = playerPosition[2] - coconutPos.current[2];
           const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
           
           if (distance > 0) {
-            const returnSpeed = 25; // Faster return
+            const returnSpeed = 30; // Even faster return
             coconut.velocity[0] = (dx / distance) * returnSpeed;
-            coconut.velocity[1] = (dy / distance) * returnSpeed + 2; // Slight upward arc
+            coconut.velocity[1] = (dy / distance) * returnSpeed + 5; // Strong upward component
             coconut.velocity[2] = (dz / distance) * returnSpeed;
           }
-        }
-        
-        // Check if returned to player
-        if (isReturning.current) {
+          
+          // Check if returned to player
           const distanceToPlayer = Math.sqrt(
             Math.pow(coconutPos.current[0] - playerPosition[0], 2) +
             Math.pow(coconutPos.current[1] - playerPosition[1], 2) +
             Math.pow(coconutPos.current[2] - playerPosition[2], 2)
           );
           
-          if (distanceToPlayer < 2) {
-            // Collected by player - don't explode
+          if (distanceToPlayer < 3) {
+            console.log('Boomerang collected by player!');
+            // Collected by player - don't explode, just remove
             onHit(coconut.id, [...coconutPos.current]);
             return;
           }

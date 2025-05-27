@@ -913,7 +913,7 @@ export default function Game() {
     return 'knife';
   };
 
-  // Get current projectile weapon
+  // Get current projectile weapon (priority order: most expensive first)
   const getCurrentProjectileWeapon = () => {
     if (gameState.weapons.watermelonCannon) return 'watermelonCannon';
     if (gameState.weapons.pineappleGrenade) return 'pineappleGrenade';

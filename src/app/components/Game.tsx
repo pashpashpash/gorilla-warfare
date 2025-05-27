@@ -71,6 +71,7 @@ interface Coconut {
   velocity: [number, number, number];
   life: number;
   explosive?: boolean;
+  projectileType?: string;
 }
 
 interface MoneyDrop {
@@ -912,6 +913,15 @@ export default function Game() {
     return 'knife';
   };
 
+  // Get current projectile weapon
+  const getCurrentProjectileWeapon = () => {
+    if (gameState.weapons.watermelonCannon) return 'watermelonCannon';
+    if (gameState.weapons.pineappleGrenade) return 'pineappleGrenade';
+    if (gameState.weapons.durian) return 'durian';
+    if (gameState.weapons.bananaBoomerang) return 'bananaBoomerang';
+    return 'coconuts';
+  };
+
   // Melee attack function (knife or vine whip)
   const performMeleeAttack = () => {
     const now = Date.now();
@@ -1131,27 +1141,52 @@ export default function Game() {
     }, 100); // Small delay to ensure canvas is ready
   };
 
-  const throwCoconut = () => {
+  const throwProjectile = () => {
     if (gameState.weapons.coconuts && gameState.coconuts > 0 && cameraRef.current) {
       // Get the actual camera direction vector
       const direction = new THREE.Vector3();
       cameraRef.current.getWorldDirection(direction);
       
-      // Scale the direction and add some upward arc
-      const velocity = [
-        direction.x * 20,
-        direction.y * 20 + 5, // Add upward arc
-        direction.z * 20
-      ];
+      const currentWeapon = getCurrentProjectileWeapon();
       
-      const newCoconut: Coconut = {
-        id: `coconut-${Date.now()}`,
+      // Different stats for different weapons
+      let velocity, life, projectileSize;
+      switch (currentWeapon) {
+        case 'watermelonCannon':
+          velocity = [direction.x * 25, direction.y * 25 + 3, direction.z * 25]; // Faster, less arc
+          life = 4; // Longer range
+          projectileSize = 0.4; // Bigger
+          break;
+        case 'pineappleGrenade':
+          velocity = [direction.x * 18, direction.y * 18 + 8, direction.z * 18]; // Slower, more arc
+          life = 3.5;
+          projectileSize = 0.3;
+          break;
+        case 'durian':
+          velocity = [direction.x * 15, direction.y * 15 + 10, direction.z * 15]; // Slowest, highest arc
+          life = 4;
+          projectileSize = 0.35;
+          break;
+        case 'bananaBoomerang':
+          velocity = [direction.x * 22, direction.y * 22 + 4, direction.z * 22];
+          life = 5; // Returns, so longer life
+          projectileSize = 0.25;
+          break;
+        default: // coconuts
+          velocity = [direction.x * 20, direction.y * 20 + 5, direction.z * 20];
+          life = 3;
+          projectileSize = 0.2;
+      }
+      
+      const newProjectile: Coconut = {
+        id: `${currentWeapon}-${Date.now()}`,
         position: [playerPosition[0], playerPosition[1] + 2, playerPosition[2]],
         velocity: velocity,
-        life: 3
+        life: life,
+        projectileType: currentWeapon
       };
       
-      setCoconutProjectiles(prev => [...prev, newCoconut]);
+      setCoconutProjectiles(prev => [...prev, newProjectile]);
       setGameState(prev => ({ ...prev, coconuts: prev.coconuts - 1 }));
     }
   };
@@ -1318,8 +1353,8 @@ export default function Game() {
           canvas.requestPointerLock();
         }
       } else {
-        // Shoot coconut if already locked
-        throwCoconut();
+        // Shoot projectile if already locked
+        throwProjectile();
       }
     }
   };

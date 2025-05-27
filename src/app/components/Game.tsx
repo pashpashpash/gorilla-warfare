@@ -976,12 +976,20 @@ export default function Game() {
       setIsPointerLocked(document.pointerLockElement !== null);
     };
 
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.code === 'Escape' && isPointerLocked) {
+        document.exitPointerLock();
+      }
+    };
+
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('pointerlockchange', handlePointerLockChange);
+    document.addEventListener('keydown', handleEscapeKey);
     
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('pointerlockchange', handlePointerLockChange);
+      document.removeEventListener('keydown', handleEscapeKey);
     };
   }, [isPointerLocked]);
 

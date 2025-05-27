@@ -92,6 +92,7 @@ interface KnifeAttack {
   position: [number, number, number];
   direction: [number, number, number];
   life: number;
+  weaponType?: string;
 }
 
 // Fortnite-style Mouse Look Camera with Pointer Lock
@@ -716,7 +717,7 @@ function LootBoxComponent({ lootBox, playerPosition, onCollect }: {
   );
 }
 
-// Knife Attack Component
+// Melee Attack Component (Knife or Vine Whip)
 function KnifeAttackComponent({ attack, onComplete, onHit }: { 
   attack: KnifeAttack, 
   onComplete: (attackId: string) => void,
@@ -725,6 +726,7 @@ function KnifeAttackComponent({ attack, onComplete, onHit }: {
   const ref = useRef<THREE.Group>(null);
   const life = useRef(attack.life);
   const hasHit = useRef(false);
+  const isVineWhip = attack.weaponType === 'vineWhip';
   
   useFrame((state, delta) => {
     if (ref.current && !hasHit.current) {
@@ -734,11 +736,19 @@ function KnifeAttackComponent({ attack, onComplete, onHit }: {
         return;
       }
       
-      // Move knife attack forward
-      const speed = 15; // Faster knife speed
+      // Different speeds for different weapons
+      const speed = isVineWhip ? 20 : 15; // Vine whip is faster
       ref.current.position.x += attack.direction[0] * delta * speed;
       ref.current.position.y += attack.direction[1] * delta * speed;
       ref.current.position.z += attack.direction[2] * delta * speed;
+      
+      // Vine whip has a whipping animation
+      if (isVineWhip) {
+        const whipProgress = 1 - (life.current / attack.life);
+        const whipCurve = Math.sin(whipProgress * Math.PI * 3) * 0.5;
+        ref.current.rotation.z = whipCurve;
+        ref.current.scale.x = 1 + whipProgress * 0.5; // Extends as it whips
+      }
       
       // Check for hits at current position
       const currentPos: [number, number, number] = [
@@ -752,19 +762,58 @@ function KnifeAttackComponent({ attack, onComplete, onHit }: {
       
       // Fade out
       const opacity = life.current / attack.life;
-      if (ref.current.children[0]) {
-        (ref.current.children[0] as any).material.opacity = opacity;
+      if (ref.current.children.length > 0) {
+        ref.current.children.forEach(child => {
+          if ((child as any).material) {
+            (child as any).material.opacity = opacity;
+          }
+        });
       }
     }
   });
 
-  return (
-    <group ref={ref} position={attack.position}>
-      <Box args={[0.1, 0.5, 2]} position={[0, 0, 0]}>
-        <meshBasicMaterial color="#C0C0C0" transparent />
-      </Box>
-    </group>
-  );
+  if (isVineWhip) {
+    // Vine whip appearance - long, green, organic
+    return (
+      <group ref={ref} position={attack.position}>
+        {/* Main vine body - longer and thicker */}
+        <Box args={[0.15, 0.3, 4]} position={[0, 0, 0]}>
+          <meshBasicMaterial color="#228B22" transparent />
+        </Box>
+        {/* Vine segments for organic look */}
+        <Box args={[0.12, 0.25, 1]} position={[0, 0, 1.5]}>
+          <meshBasicMaterial color="#32CD32" transparent />
+        </Box>
+        <Box args={[0.1, 0.2, 1]} position={[0, 0, 2.5]}>
+          <meshBasicMaterial color="#90EE90" transparent />
+        </Box>
+        {/* Thorns/spikes */}
+        <Box args={[0.05, 0.1, 0.2]} position={[0.1, 0.1, 1]}>
+          <meshBasicMaterial color="#8B4513" transparent />
+        </Box>
+        <Box args={[0.05, 0.1, 0.2]} position={[-0.1, 0.1, 2]}>
+          <meshBasicMaterial color="#8B4513" transparent />
+        </Box>
+        {/* Glowing effect */}
+        <Sphere args={[0.3]} position={[0, 0, 2]}>
+          <meshBasicMaterial color="#00FF00" transparent opacity={0.2} />
+        </Sphere>
+      </group>
+    );
+  } else {
+    // Knife appearance - metallic and sharp
+    return (
+      <group ref={ref} position={attack.position}>
+        <Box args={[0.1, 0.5, 2]} position={[0, 0, 0]}>
+          <meshBasicMaterial color="#C0C0C0" transparent />
+        </Box>
+        {/* Knife blade shine */}
+        <Box args={[0.05, 0.3, 1.5]} position={[0, 0, 0.25]}>
+          <meshBasicMaterial color="#FFFFFF" transparent opacity={0.5} />
+        </Box>
+      </group>
+    );
+  }
 }
 
 // Explosion Effect
@@ -866,7 +915,10 @@ export default function Game() {
   // Melee attack function (knife or vine whip)
   const performMeleeAttack = () => {
     const now = Date.now();
-    if (now - lastKnifeAttack.current < 500) return; // 500ms cooldown
+    const currentWeapon = getCurrentMeleeWeapon();
+    const cooldown = currentWeapon === 'vineWhip' ? 300 : 500; // Vine whip is faster
+    
+    if (now - lastKnifeAttack.current < cooldown) return;
     
     lastKnifeAttack.current = now;
     
@@ -875,13 +927,13 @@ export default function Game() {
       cameraRef.current.getWorldDirection(direction);
       
       const currentPlayerPos = playerPositionRef.current;
-      const currentWeapon = getCurrentMeleeWeapon();
       
       const newAttack: KnifeAttack = {
         id: `${currentWeapon}-${now}`,
         position: [currentPlayerPos[0], currentPlayerPos[1] + 1, currentPlayerPos[2]],
         direction: [direction.x, direction.y, direction.z],
-        life: currentWeapon === 'vineWhip' ? 0.8 : 0.5 // Vine whip lasts longer
+        life: currentWeapon === 'vineWhip' ? 1.0 : 0.5, // Vine whip lasts much longer
+        weaponType: currentWeapon // Add weapon type for visual differences
       };
       
       setKnifeAttacks(prev => [...prev, newAttack]);

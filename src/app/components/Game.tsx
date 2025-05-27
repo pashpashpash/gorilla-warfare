@@ -50,9 +50,19 @@ interface Enemy {
   id: string;
   position: [number, number, number];
   health: number;
-  type: 'ape' | 'gorilla' | 'monkey';
+  type: 'ape' | 'gorilla' | 'monkey' | 'acrobat' | 'berserker' | 'stealth' | 'bomber' | 'shaman' | 'leaper' | 'tank' | 'sniper';
   speed: number;
   alive: boolean;
+  // Special behavior properties
+  lastSpecialAttack?: number;
+  isInvisible?: boolean;
+  chargeDirection?: [number, number, number];
+  isCharging?: boolean;
+  targetPosition?: [number, number, number];
+  healCooldown?: number;
+  jumpCooldown?: number;
+  climbHeight?: number;
+  sniperCooldown?: number;
 }
 
 interface Coconut {
@@ -204,8 +214,8 @@ function ThirdPersonPlayer({ position, onMove, cameraRotation, gameState }: {
   );
 }
 
-// Simple Enemy Component
-function SimpleEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: { 
+// Advanced Enemy Component with Unique Behaviors
+function AdvancedEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: { 
   enemy: Enemy, 
   playerPosition: [number, number, number],
   onDamage: (enemyId: string) => void,
@@ -214,33 +224,170 @@ function SimpleEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: {
   const ref = useRef<THREE.Group>(null);
   const enemyPos = useRef([...enemy.position]);
   const lastAttack = useRef(0);
+  const behaviorState = useRef({
+    lastSpecialAttack: 0,
+    isInvisible: false,
+    chargeDirection: [0, 0, 0] as [number, number, number],
+    isCharging: false,
+    targetPosition: [0, 0, 0] as [number, number, number],
+    jumpCooldown: 0,
+    climbHeight: 0,
+    sniperCooldown: 0
+  });
   
   useFrame((state, delta) => {
     if (ref.current && enemy.alive) {
-      // Simple AI - move toward player
       const dx = playerPosition[0] - enemyPos.current[0];
       const dz = playerPosition[2] - enemyPos.current[2];
       const distance = Math.sqrt(dx * dx + dz * dz);
+      const now = state.clock.elapsedTime;
       
-      if (distance > 1.5) {
-        // Move toward player
-        const speed = enemy.speed * delta;
-        enemyPos.current[0] += (dx / distance) * speed;
-        enemyPos.current[2] += (dz / distance) * speed;
-      } else {
-        // Attack player if close enough
-        const now = state.clock.elapsedTime;
-        if (now - lastAttack.current > 1) { // Attack every 1 second
-          onDamage(enemy.id);
-          lastAttack.current = now;
-        }
+      // Update behavior based on enemy type
+      switch (enemy.type) {
+        case 'acrobat':
+          // Swings between trees, hard to hit, drops down for surprise attacks
+          if (now - behaviorState.current.lastSpecialAttack > 3) {
+            // Teleport to a random tree position
+            const angle = Math.random() * Math.PI * 2;
+            const treeDistance = 10 + Math.random() * 15;
+            enemyPos.current[0] = Math.cos(angle) * treeDistance;
+            enemyPos.current[2] = Math.sin(angle) * treeDistance;
+            enemyPos.current[1] = 8; // High in trees
+            behaviorState.current.lastSpecialAttack = now;
+          }
+          // Drop down when close to player
+          if (distance < 8 && enemyPos.current[1] > 2) {
+            enemyPos.current[1] -= 15 * delta; // Fast drop
+          }
+          break;
+          
+        case 'berserker':
+          // Charges in straight lines, devastating but predictable
+          if (!behaviorState.current.isCharging && distance < 15 && now - behaviorState.current.lastSpecialAttack > 4) {
+            behaviorState.current.isCharging = true;
+            behaviorState.current.chargeDirection = [dx / distance, 0, dz / distance];
+            behaviorState.current.lastSpecialAttack = now;
+          }
+          if (behaviorState.current.isCharging) {
+            const chargeSpeed = 20 * delta;
+            enemyPos.current[0] += behaviorState.current.chargeDirection[0] * chargeSpeed;
+            enemyPos.current[2] += behaviorState.current.chargeDirection[2] * chargeSpeed;
+            // Stop charging after 2 seconds
+            if (now - behaviorState.current.lastSpecialAttack > 2) {
+              behaviorState.current.isCharging = false;
+            }
+          }
+          break;
+          
+        case 'stealth':
+          // Becomes invisible periodically, ambush attacks
+          if (now - behaviorState.current.lastSpecialAttack > 5) {
+            behaviorState.current.isInvisible = !behaviorState.current.isInvisible;
+            behaviorState.current.lastSpecialAttack = now;
+          }
+          if (behaviorState.current.isInvisible && distance > 3) {
+            // Move faster when invisible
+            const speed = enemy.speed * 2 * delta;
+            enemyPos.current[0] += (dx / distance) * speed;
+            enemyPos.current[2] += (dz / distance) * speed;
+          }
+          break;
+          
+        case 'bomber':
+          // Throws explosive fruit from range, stays back
+          if (distance > 8) {
+            // Move to maintain distance
+            const speed = enemy.speed * delta;
+            enemyPos.current[0] += (dx / distance) * speed;
+            enemyPos.current[2] += (dz / distance) * speed;
+          } else if (distance < 12) {
+            // Back away if too close
+            const speed = enemy.speed * delta;
+            enemyPos.current[0] -= (dx / distance) * speed;
+            enemyPos.current[2] -= (dz / distance) * speed;
+          }
+          break;
+          
+        case 'leaper':
+          // Jumps around erratically, very fast and unpredictable
+          behaviorState.current.jumpCooldown -= delta;
+          if (behaviorState.current.jumpCooldown <= 0) {
+            const jumpAngle = Math.random() * Math.PI * 2;
+            const jumpDistance = 5 + Math.random() * 8;
+            behaviorState.current.targetPosition = [
+              enemyPos.current[0] + Math.cos(jumpAngle) * jumpDistance,
+              0,
+              enemyPos.current[2] + Math.sin(jumpAngle) * jumpDistance
+            ];
+            behaviorState.current.jumpCooldown = 1 + Math.random() * 2;
+          }
+          // Move toward jump target
+          const jumpDx = behaviorState.current.targetPosition[0] - enemyPos.current[0];
+          const jumpDz = behaviorState.current.targetPosition[2] - enemyPos.current[2];
+          const jumpDistance = Math.sqrt(jumpDx * jumpDx + jumpDz * jumpDz);
+          if (jumpDistance > 0.5) {
+            const jumpSpeed = enemy.speed * 2 * delta;
+            enemyPos.current[0] += (jumpDx / jumpDistance) * jumpSpeed;
+            enemyPos.current[2] += (jumpDz / jumpDistance) * jumpSpeed;
+          }
+          break;
+          
+        case 'tank':
+          // Slow but massive health, creates shockwaves
+          if (distance > 2) {
+            const speed = enemy.speed * 0.5 * delta; // Slower movement
+            enemyPos.current[0] += (dx / distance) * speed;
+            enemyPos.current[2] += (dz / distance) * speed;
+          }
+          // Shockwave attack
+          if (distance < 5 && now - behaviorState.current.lastSpecialAttack > 3) {
+            // TODO: Create shockwave effect
+            behaviorState.current.lastSpecialAttack = now;
+          }
+          break;
+          
+        case 'sniper':
+          // Long-range coconut attacks, climbs to high positions
+          behaviorState.current.climbHeight = Math.min(behaviorState.current.climbHeight + delta * 2, 6);
+          enemyPos.current[1] = behaviorState.current.climbHeight;
+          
+          // Stay at distance and shoot
+          if (distance < 20) {
+            const speed = enemy.speed * 0.3 * delta;
+            enemyPos.current[0] -= (dx / distance) * speed;
+            enemyPos.current[2] -= (dz / distance) * speed;
+          }
+          break;
+          
+        default:
+          // Basic movement for original enemy types
+          if (distance > 1.5) {
+            const speed = enemy.speed * delta;
+            enemyPos.current[0] += (dx / distance) * speed;
+            enemyPos.current[2] += (dz / distance) * speed;
+          }
       }
       
-      // Keep enemy on ground
-      enemyPos.current[1] = 0;
+      // Attack logic
+      if (distance < 2 && now - lastAttack.current > 1) {
+        onDamage(enemy.id);
+        lastAttack.current = now;
+      }
+      
+      // Keep enemy on ground (except for special types)
+      if (enemy.type !== 'acrobat' && enemy.type !== 'sniper') {
+        enemyPos.current[1] = 0;
+      }
       
       // Update position
       ref.current.position.set(...enemyPos.current);
+      
+      // Handle invisibility
+      if (enemy.type === 'stealth' && behaviorState.current.isInvisible) {
+        ref.current.visible = Math.sin(now * 10) > 0; // Flickering effect
+      } else {
+        ref.current.visible = true;
+      }
       
       // Report current position back to parent
       onPositionUpdate(enemy.id, [enemyPos.current[0], enemyPos.current[1], enemyPos.current[2]]);
@@ -249,25 +396,49 @@ function SimpleEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: {
 
   if (!enemy.alive) return null;
 
-  const color = enemy.type === 'ape' ? '#8B4513' : enemy.type === 'gorilla' ? '#2F2F2F' : '#CD853F';
+  // Different colors and sizes for different enemy types
+  const getEnemyAppearance = () => {
+    switch (enemy.type) {
+      case 'acrobat': return { color: '#FF6B35', size: [0.6, 1.2, 0.4] };
+      case 'berserker': return { color: '#DC143C', size: [1.2, 2.0, 0.8] };
+      case 'stealth': return { color: '#4B0082', size: [0.7, 1.4, 0.5] };
+      case 'bomber': return { color: '#FF8C00', size: [0.9, 1.7, 0.7] };
+      case 'shaman': return { color: '#9370DB', size: [0.8, 1.8, 0.6] };
+      case 'leaper': return { color: '#32CD32', size: [0.5, 1.0, 0.3] };
+      case 'tank': return { color: '#2F4F4F', size: [1.5, 2.5, 1.0] };
+      case 'sniper': return { color: '#8B4513', size: [0.7, 1.5, 0.5] };
+      case 'ape': return { color: '#8B4513', size: [0.8, 1.6, 0.6] };
+      case 'gorilla': return { color: '#2F2F2F', size: [0.8, 1.6, 0.6] };
+      case 'monkey': return { color: '#CD853F', size: [0.8, 1.6, 0.6] };
+      default: return { color: '#8B4513', size: [0.8, 1.6, 0.6] };
+    }
+  };
+  
+  const appearance = getEnemyAppearance();
 
   return (
     <group ref={ref} position={enemy.position}>
       {/* Enemy Body */}
-      <Box args={[0.8, 1.6, 0.6]} position={[0, 0.8, 0]}>
-        <meshStandardMaterial color={color} roughness={0.8} />
+      <Box args={appearance.size} position={[0, appearance.size[1] / 2, 0]}>
+        <meshStandardMaterial color={appearance.color} roughness={0.8} />
       </Box>
       {/* Enemy Head */}
-      <Sphere args={[0.5]} position={[0, 1.8, 0]}>
-        <meshStandardMaterial color={color} roughness={0.8} />
+      <Sphere args={[appearance.size[0] * 0.6]} position={[0, appearance.size[1] + appearance.size[0] * 0.3, 0]}>
+        <meshStandardMaterial color={appearance.color} roughness={0.8} />
       </Sphere>
       {/* Health bar */}
-      <Plane args={[1, 0.1]} position={[0, 2.5, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <Plane args={[1, 0.1]} position={[0, appearance.size[1] + 1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <meshBasicMaterial color="red" />
       </Plane>
-      <Plane args={[enemy.health / 100, 0.1]} position={[0, 2.51, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <Plane args={[enemy.health / 200, 0.1]} position={[0, appearance.size[1] + 1.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <meshBasicMaterial color="green" />
       </Plane>
+      {/* Special effects for certain types */}
+      {enemy.type === 'berserker' && behaviorState.current.isCharging && (
+        <Sphere args={[2]} position={[0, 1, 0]}>
+          <meshBasicMaterial color="red" transparent opacity={0.3} />
+        </Sphere>
+      )}
     </group>
   );
 }
@@ -824,7 +995,15 @@ export default function Game() {
         const angle = (i / enemyCount) * Math.PI * 2;
         const distance = 15 + Math.random() * 10;
         
-        const enemyType = ['ape', 'gorilla', 'monkey'][Math.floor(Math.random() * 3)] as 'ape' | 'gorilla' | 'monkey';
+        // Progressive enemy type introduction based on wave
+        let availableTypes: Enemy['type'][] = ['ape', 'gorilla', 'monkey'];
+        
+        if (gameState.wave >= 3) availableTypes.push('acrobat', 'berserker');
+        if (gameState.wave >= 5) availableTypes.push('stealth', 'bomber');
+        if (gameState.wave >= 7) availableTypes.push('shaman', 'leaper');
+        if (gameState.wave >= 10) availableTypes.push('tank', 'sniper');
+        
+        const enemyType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
         
         // Balanced enemy scaling: Base 80 HP + 20 per wave
         const baseHealth = 80 + (gameState.wave - 1) * 20;
@@ -1386,7 +1565,7 @@ export default function Game() {
         />
         
         {aliveEnemies.map(enemy => (
-          <SimpleEnemy 
+          <AdvancedEnemy 
             key={enemy.id}
             enemy={enemy}
             playerPosition={playerPosition}

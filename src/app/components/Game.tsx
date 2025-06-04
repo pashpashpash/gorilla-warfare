@@ -1,15 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { 
-  OrbitControls, 
   Environment, 
   Box, 
   Sphere, 
   Plane,
-  Sky,
-  Stars
+  Sky
 } from '@react-three/drei';
 import * as THREE from 'three';
 
@@ -50,7 +48,7 @@ interface Enemy {
   id: string;
   position: [number, number, number];
   health: number;
-  type: 'ape' | 'gorilla' | 'monkey' | 'acrobat' | 'berserker' | 'stealth' | 'bomber' | 'shaman' | 'leaper' | 'tank' | 'sniper';
+  type: 'ape' | 'gorilla' | 'monkey' | 'acrobat' | 'berserker' | 'stealth' | 'bomber' | 'shaman' | 'leaper' | 'tank' | 'sniper' | 'trickster' | 'guardian' | 'scout';
   speed: number;
   alive: boolean;
   // Special behavior properties
@@ -147,7 +145,7 @@ function ThirdPersonPlayer({ position, onMove, cameraRotation, gameState }: {
   
   useFrame((state, delta) => {
     if (ref.current) {
-      const keys = (window as any).gameKeys || {};
+      const keys = (window as unknown as { gameKeys?: { w: boolean; a: boolean; s: boolean; d: boolean; space: boolean } }).gameKeys || { w: false, a: false, s: false, d: false, space: false };
       // Apply speed boost from upgrades
       const baseSpeed = 8;
       const speedMultiplier = gameState.perks.moveSpeed; // Use direct speed multiplier
@@ -178,8 +176,8 @@ function ThirdPersonPlayer({ position, onMove, cameraRotation, gameState }: {
       playerPos.current[1] = 0; // Keep on ground
       
       // Update position
-      ref.current.position.set(...playerPos.current);
-      onMove([...playerPos.current]);
+      ref.current.position.set(playerPos.current[0], playerPos.current[1], playerPos.current[2]);
+      onMove([playerPos.current[0], playerPos.current[1], playerPos.current[2]]);
       
       // Rotate player to face camera direction (not movement direction)
       if (cameraRotation.current) {
@@ -191,25 +189,25 @@ function ThirdPersonPlayer({ position, onMove, cameraRotation, gameState }: {
   return (
     <group ref={ref} position={position}>
       {/* Gorilla Body */}
-      <Box args={[1, 2, 0.8]} position={[0, 1, 0]}>
+      <Box args={[1, 2, 0.8] as [number, number, number]} position={[0, 1, 0]}>
         <meshStandardMaterial color="#4a4a4a" roughness={0.8} />
       </Box>
       {/* Gorilla Head */}
-      <Sphere args={[0.6]} position={[0, 2.2, 0]}>
+      <Sphere args={[0.6] as [number]} position={[0, 2.2, 0]}>
         <meshStandardMaterial color="#3a3a3a" roughness={0.8} />
       </Sphere>
       {/* Arms */}
-      <Box args={[0.3, 1.5, 0.3]} position={[-0.8, 1, 0]}>
+      <Box args={[0.3, 1.5, 0.3] as [number, number, number]} position={[-0.8, 1, 0]}>
         <meshStandardMaterial color="#4a4a4a" roughness={0.8} />
       </Box>
-      <Box args={[0.3, 1.5, 0.3]} position={[0.8, 1, 0]}>
+      <Box args={[0.3, 1.5, 0.3] as [number, number, number]} position={[0.8, 1, 0]}>
         <meshStandardMaterial color="#4a4a4a" roughness={0.8} />
       </Box>
       {/* Legs */}
-      <Box args={[0.4, 1, 0.4]} position={[-0.3, 0, 0]}>
+      <Box args={[0.4, 1, 0.4] as [number, number, number]} position={[-0.3, 0, 0]}>
         <meshStandardMaterial color="#4a4a4a" roughness={0.8} />
       </Box>
-      <Box args={[0.4, 1, 0.4]} position={[0.3, 0, 0]}>
+      <Box args={[0.4, 1, 0.4] as [number, number, number]} position={[0.3, 0, 0]}>
         <meshStandardMaterial color="#4a4a4a" roughness={0.8} />
       </Box>
     </group>
@@ -361,6 +359,53 @@ function AdvancedEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: {
           }
           break;
           
+        case 'trickster':
+          // Uses distractions and quick movements to confuse player
+          if (now - behaviorState.current.lastSpecialAttack > 2) {
+            // Quick dodge movement
+            const dodgeAngle = Math.random() * Math.PI * 2;
+            const dodgeDistance = 3 + Math.random() * 5;
+            enemyPos.current[0] += Math.cos(dodgeAngle) * dodgeDistance * delta;
+            enemyPos.current[2] += Math.sin(dodgeAngle) * dodgeDistance * delta;
+            behaviorState.current.lastSpecialAttack = now;
+          }
+          // Quick approach when close
+          if (distance < 5) {
+            const speed = enemy.speed * 1.5 * delta;
+            enemyPos.current[0] += (dx / distance) * speed;
+            enemyPos.current[2] += (dz / distance) * speed;
+          }
+          break;
+          
+        case 'guardian':
+          // Protects other enemies, slow but high health and can block attacks
+          if (distance > 3) {
+            const speed = enemy.speed * 0.7 * delta; // Slower movement
+            enemyPos.current[0] += (dx / distance) * speed;
+            enemyPos.current[2] += (dz / distance) * speed;
+          }
+          // Shielding aura for nearby enemies (visual effect only for now)
+          if (now - behaviorState.current.lastSpecialAttack > 5) {
+            behaviorState.current.lastSpecialAttack = now;
+          }
+          break;
+          
+        case 'scout':
+          // Fast, low health, alerts others, tries to flank player
+          if (distance > 10) {
+            const speed = enemy.speed * 1.8 * delta; // Very fast
+            enemyPos.current[0] += (dx / distance) * speed;
+            enemyPos.current[2] += (dz / distance) * speed;
+          } else if (distance < 10 && distance > 3) {
+            // Circle around player
+            const speed = enemy.speed * 1.5 * delta;
+            const tangentX = -dz / distance;
+            const tangentZ = dx / distance;
+            enemyPos.current[0] += tangentX * speed;
+            enemyPos.current[2] += tangentZ * speed;
+          }
+          break;
+          
         default:
           // Basic movement for original enemy types
           if (distance > 1.5) {
@@ -382,7 +427,7 @@ function AdvancedEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: {
       }
       
       // Update position
-      ref.current.position.set(...enemyPos.current);
+      ref.current.position.set(enemyPos.current[0], enemyPos.current[1], enemyPos.current[2]);
       
       // Handle invisibility
       if (enemy.type === 'stealth' && behaviorState.current.isInvisible) {
@@ -409,6 +454,9 @@ function AdvancedEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: {
       case 'leaper': return { color: '#32CD32', size: [0.5, 1.0, 0.3] };
       case 'tank': return { color: '#2F4F4F', size: [1.5, 2.5, 1.0] };
       case 'sniper': return { color: '#8B4513', size: [0.7, 1.5, 0.5] };
+      case 'trickster': return { color: '#FF69B4', size: [0.6, 1.2, 0.4] };
+      case 'guardian': return { color: '#4682B4', size: [1.3, 2.2, 0.9] };
+      case 'scout': return { color: '#ADFF2F', size: [0.5, 1.0, 0.3] };
       case 'ape': return { color: '#8B4513', size: [0.8, 1.6, 0.6] };
       case 'gorilla': return { color: '#2F2F2F', size: [0.8, 1.6, 0.6] };
       case 'monkey': return { color: '#CD853F', size: [0.8, 1.6, 0.6] };
@@ -421,11 +469,11 @@ function AdvancedEnemy({ enemy, playerPosition, onDamage, onPositionUpdate }: {
   return (
     <group ref={ref} position={enemy.position}>
       {/* Enemy Body */}
-      <Box args={appearance.size} position={[0, appearance.size[1] / 2, 0]}>
+      <Box args={appearance.size as [number, number, number]} position={[0, appearance.size[1] / 2, 0]}>
         <meshStandardMaterial color={appearance.color} roughness={0.8} />
       </Box>
       {/* Enemy Head */}
-      <Sphere args={[appearance.size[0] * 0.6]} position={[0, appearance.size[1] + appearance.size[0] * 0.3, 0]}>
+      <Sphere args={[appearance.size[0] * 0.6] as [number]} position={[0, appearance.size[1] + appearance.size[0] * 0.3, 0]}>
         <meshStandardMaterial color={appearance.color} roughness={0.8} />
       </Sphere>
       {/* Health bar */}
@@ -523,7 +571,7 @@ function AdvancedProjectile({ coconut, onHit, playerPosition }: {
         return;
       }
       
-      ref.current.position.set(...coconutPos.current);
+      ref.current.position.set(coconutPos.current[0], coconutPos.current[1], coconutPos.current[2]);
     }
   });
 
@@ -576,44 +624,44 @@ function AdvancedProjectile({ coconut, onHit, playerPosition }: {
       {appearance.shape === 'curved' ? (
         // Banana shape - curved box
         <>
-          <Box args={appearance.size} position={[0, 0, 0]} rotation={[0, 0, Math.PI / 6]}>
+          <Box args={appearance.size as [number, number, number]} position={[0, 0, 0]} rotation={[0, 0, Math.PI / 6]}>
             <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.7} />
           </Box>
-          <Box args={[0.1, 0.4, 0.1]} position={[0.1, 0.2, 0]} rotation={[0, 0, Math.PI / 4]}>
+          <Box args={[0.1, 0.4, 0.1] as [number, number, number]} position={[0.1, 0.2, 0]} rotation={[0, 0, Math.PI / 4]}>
             <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.7} />
           </Box>
         </>
       ) : appearance.shape === 'pineapple' ? (
         // Pineapple shape - textured
         <>
-          <Box args={appearance.size} position={[0, 0, 0]}>
+          <Box args={appearance.size as [number, number, number]} position={[0, 0, 0]}>
             <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.8} />
           </Box>
           {/* Pineapple crown */}
-          <Box args={[0.1, 0.2, 0.1]} position={[0, 0.25, 0]}>
+          <Box args={[0.1, 0.2, 0.1] as [number, number, number]} position={[0, 0.25, 0]}>
             <meshStandardMaterial color="#228B22" roughness={0.9} />
           </Box>
         </>
       ) : appearance.shape === 'spiky' ? (
         // Durian shape - spiky
         <>
-          <Sphere args={appearance.size} position={[0, 0, 0]}>
+          <Sphere args={appearance.size as [number, number, number]} position={[0, 0, 0]}>
             <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.9} />
           </Sphere>
           {/* Spikes */}
-          <Box args={[0.05, 0.15, 0.05]} position={[0.2, 0, 0]}>
+          <Box args={[0.05, 0.15, 0.05] as [number, number, number]} position={[0.2, 0, 0]}>
             <meshStandardMaterial color="#654321" roughness={0.9} />
           </Box>
-          <Box args={[0.05, 0.15, 0.05]} position={[-0.2, 0, 0]}>
+          <Box args={[0.05, 0.15, 0.05] as [number, number, number]} position={[-0.2, 0, 0]}>
             <meshStandardMaterial color="#654321" roughness={0.9} />
           </Box>
-          <Box args={[0.05, 0.15, 0.05]} position={[0, 0.2, 0]}>
+          <Box args={[0.05, 0.15, 0.05] as [number, number, number]} position={[0, 0.2, 0]}>
             <meshStandardMaterial color="#654321" roughness={0.9} />
           </Box>
         </>
       ) : (
         // Default sphere shape
-        <Sphere args={appearance.size} position={[0, 0, 0]}>
+        <Sphere args={appearance.size as [number, number, number]} position={[0, 0, 0]}>
           <meshStandardMaterial color={appearance.color} emissive={appearance.emissive} roughness={0.9} />
         </Sphere>
       )}
@@ -689,53 +737,8 @@ function ShopBuilding({ playerPosition, onShopInteract }: {
   );
 }
 
-// Simple Environment
-function SimpleEnvironment({ playerPosition, onShopInteract }: {
-  playerPosition: [number, number, number],
-  onShopInteract: () => void
-}) {
-  // Memoize tree positions to prevent re-rendering
-  const treePositions = useMemo(() => {
-    return Array.from({ length: 15 }, (_, i) => ({
-      id: i,
-      x: (Math.random() - 0.5) * 80,
-      z: (Math.random() - 0.5) * 80
-    }));
-  }, []);
-
-  return (
-    <group>
-      {/* Ground */}
-      <Plane args={[100, 100]} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <meshStandardMaterial color="#228B22" roughness={0.8} />
-      </Plane>
-      
-      {/* Trees */}
-      {treePositions.map((tree) => (
-        <group key={tree.id} position={[tree.x, 0, tree.z]}>
-          <Box args={[1, 8, 1]} position={[0, 4, 0]}>
-            <meshStandardMaterial color="#8B4513" roughness={0.9} />
-          </Box>
-          <Sphere args={[3]} position={[0, 10, 0]}>
-            <meshStandardMaterial color="#228B22" roughness={0.8} />
-          </Sphere>
-        </group>
-      ))}
-      
-      {/* Waterfall */}
-      <group position={[-20, 10, -20]}>
-        <Box args={[0.5, 20, 0.5]} position={[0, 0, 0]}>
-          <meshBasicMaterial color="#87CEEB" transparent opacity={0.6} />
-        </Box>
-      </group>
-      
-      {/* Shop Building */}
-      <ShopBuilding playerPosition={playerPosition} onShopInteract={onShopInteract} />
-      
-      <Stars radius={100} depth={50} count={1000} factor={4} saturation={0} fade speed={1} />
-    </group>
-  );
-}
+// Import the optimized dynamic terrain system
+import OptimizedDynamicTerrain from './terrain/OptimizedDynamicTerrain';
 
 // Money Drop Component
 function MoneyDropComponent({ money, playerPosition, onCollect }: { 
@@ -1226,6 +1229,8 @@ export default function Game() {
         if (gameState.wave >= 5) availableTypes.push('stealth', 'bomber');
         if (gameState.wave >= 7) availableTypes.push('shaman', 'leaper');
         if (gameState.wave >= 10) availableTypes.push('tank', 'sniper');
+        if (gameState.wave >= 12) availableTypes.push('trickster', 'guardian');
+        if (gameState.wave >= 15) availableTypes.push('scout');
         
         const enemyType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
         
@@ -1826,9 +1831,12 @@ export default function Game() {
         <directionalLight position={[10, 10, 5]} intensity={1} />
         <pointLight position={[-10, 10, -10]} intensity={0.5} />
         
-        <SimpleEnvironment 
+        <OptimizedDynamicTerrain 
           playerPosition={playerPosition}
           onShopInteract={() => setGameState(prev => ({ ...prev, shopOpen: true }))}
+          seed={12345}
+          chunkSize={50}
+          renderRadius={2}
         />
         
         <ThirdPersonPlayer 

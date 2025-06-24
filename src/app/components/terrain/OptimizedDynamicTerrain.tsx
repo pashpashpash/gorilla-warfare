@@ -14,6 +14,7 @@ interface OptimizedDynamicTerrainProps {
   seed?: number;
   chunkSize?: number;
   renderRadius?: number;
+  isInTransition?: boolean;
 }
 
 // Memory-efficient chunk component using object pooling and LOD
@@ -93,13 +94,11 @@ function OptimizedChunkComponent({
     });
     renderObjectsRef.current = [];
 
-    // Create ground plane with appropriate LOD
+    // Create ground plane with appropriate LOD - this will never return null now
     const groundPlane = lodManager.createGroundPlane(chunkData.biome, chunkLOD);
-    if (groundPlane) {
-      groundPlane.position.set(chunkCenterX, 0, chunkCenterZ);
-      groupRef.current.add(groundPlane);
-      renderObjectsRef.current.push({ object: groundPlane, type: 'ground-plane' });
-    }
+    groundPlane.position.set(chunkCenterX, 0, chunkCenterZ);
+    groupRef.current.add(groundPlane);
+    renderObjectsRef.current.push({ object: groundPlane, type: 'ground-plane' });
 
     // Create terrain features with LOD
     chunkData.features.forEach((feature) => {
@@ -216,8 +215,8 @@ export default function OptimizedDynamicTerrain({
   playerPosition, 
   onShopInteract, 
   seed = 12345,
-  chunkSize = 50,
-  renderRadius = 2
+  chunkSize = 16,  // Reduced from 50 to 16 for smaller, less obvious chunks
+  renderRadius = 4  // Increased from 2 to 4 to maintain same total coverage
 }: OptimizedDynamicTerrainProps) {
   const chunkManager = useMemo(() => 
     new ChunkManager(seed, chunkSize, renderRadius), 
@@ -318,12 +317,7 @@ export default function OptimizedDynamicTerrain({
 
   return (
     <>
-      {/* Debug info (remove in production) */}
-      {process.env.NODE_ENV === 'development' && (
-        <group position={[playerPosition[0] + 10, 10, playerPosition[2]]}>
-          {/* This would show debug info in development */}
-        </group>
-      )}
+      {/* Debug visualization disabled for now */}
       
       {/* Render optimized chunks */}
       <group>

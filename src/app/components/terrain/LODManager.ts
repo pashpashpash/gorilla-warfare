@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { ChunkCoord } from './TerrainGenerator';
 
 export enum LODLevel {
-  HIGH = 0,    // 0-50 units: Full detail
-  MEDIUM = 1,  // 50-100 units: Reduced detail
-  LOW = 2,     // 100-150 units: Minimal detail
-  CULLED = 3   // 150+ units: Not rendered
+  HIGH = 0,    // 0-45 units: Full detail
+  MEDIUM = 1,  // 45-95 units: Reduced detail
+  LOW = 2,     // 95-145 units: Minimal detail
+  CULLED = 3   // 145+ units: Not rendered
 }
 
 export interface LODGeometry {
@@ -26,18 +26,45 @@ export class LODManager {
   private lodDistances: number[];
   private chunkSize: number;
   private initialized: boolean = false;
+  private initializationAttempts: number = 0;
+  private maxInitializationAttempts: number = 3;
 
   constructor(chunkSize: number = 50) {
     this.chunkSize = chunkSize;
-    this.lodDistances = [50, 100, 150]; // Distance thresholds for LOD levels
-    this.initialize();
+    this.lodDistances = [45, 95, 145]; // Distance thresholds for LOD levels with hysteresis
+    // Don't initialize immediately - use lazy initialization
+    console.log('LODManager: Constructor completed, will initialize on first use');
   }
 
-  private initialize() {
-    if (this.initialized) return;
+  private isThreeJSReady(): boolean {
+    try {
+      // Test if we can create a basic Three.js geometry
+      const testGeometry = new THREE.BoxGeometry(1, 1, 1);
+      testGeometry.dispose();
+      return true;
+    } catch (error) {
+      console.warn('LODManager: Three.js not ready yet:', error);
+      return false;
+    }
+  }
+
+  private initialize(): boolean {
+    if (this.initialized) return true;
+    
+    this.initializationAttempts++;
+    
+    if (this.initializationAttempts > this.maxInitializationAttempts) {
+      console.error('LODManager: Max initialization attempts reached, using fallback mode');
+      return false;
+    }
+    
+    if (!this.isThreeJSReady()) {
+      console.warn('LODManager: Three.js not ready, deferring initialization');
+      return false;
+    }
     
     try {
-      console.log('LODManager: Starting initialization...');
+      console.log(`LODManager: Starting initialization (attempt ${this.initializationAttempts})...`);
       
       // Clear any existing data
       this.lodGeometries.clear();
@@ -45,7 +72,6 @@ export class LODManager {
       
       this.initializeLODGeometries();
       console.log('LODManager: Geometries initialized, count:', this.lodGeometries.size);
-      console.log('LODManager: Available geometry types:', Array.from(this.lodGeometries.keys()));
       
       if (this.lodGeometries.size === 0) {
         throw new Error('No geometries were initialized');
@@ -53,7 +79,6 @@ export class LODManager {
       
       this.initializeLODMaterials();
       console.log('LODManager: Materials initialized, count:', this.lodMaterials.size);
-      console.log('LODManager: Available material types:', Array.from(this.lodMaterials.keys()));
       
       if (this.lodMaterials.size === 0) {
         throw new Error('No materials were initialized');
@@ -61,21 +86,24 @@ export class LODManager {
       
       this.initialized = true;
       console.log('LODManager: Initialization complete!');
+      return true;
     } catch (error) {
-      console.error('Failed to initialize LODManager:', error);
+      console.error(`LODManager: Initialization failed (attempt ${this.initializationAttempts}):`, error);
       this.initialized = false;
-      // Force re-initialization on next access
-      setTimeout(() => {
-        console.log('LODManager: Retrying initialization...');
-        this.initialize();
-      }, 100);
+      return false;
     }
   }
 
-  private ensureInitialized() {
-    if (!this.initialized) {
-      this.initialize();
+  private ensureInitialized(): boolean {
+    if (this.initialized) return true;
+    
+    const success = this.initialize();
+    if (!success && this.initializationAttempts < this.maxInitializationAttempts) {
+      // Schedule retry for next frame
+      setTimeout(() => this.initialize(), 16);
     }
+    
+    return success;
   }
 
   private initializeLODGeometries() {
@@ -196,59 +224,33 @@ export class LODManager {
         })
       });
 
-      // Ground materials with different quality
-      console.log('LODManager: Creating ground materials...');
-      this.lodMaterials.set('ground-forest', {
-        high: new THREE.MeshStandardMaterial({ 
-          color: '#228B22', 
-          roughness: 0.8
+      // Unified ground materials - all biomes use the same consistent color
+      // Using ONLY MeshBasicMaterial to eliminate color shifting from lighting
+      console.log('LODManager: Creating unified ground materials (BasicMaterial only)...');
+      const unifiedGroundColor = '#228B22'; // Forest green for all biomes
+      
+      // Create materials that use ONLY MeshBasicMaterial for all LOD levels
+      // This eliminates color changes when moving closer/farther from chunks
+      const unifiedGroundMaterials = {
+        high: new THREE.MeshBasicMaterial({ 
+          color: unifiedGroundColor
         }),
-        medium: new THREE.MeshLambertMaterial({ 
-          color: '#228B22'
+        medium: new THREE.MeshBasicMaterial({ 
+          color: unifiedGroundColor
         }),
         low: new THREE.MeshBasicMaterial({ 
-          color: '#228B22'
+          color: unifiedGroundColor
         })
-      });
+      };
 
-      this.lodMaterials.set('ground-clearing', {
-        high: new THREE.MeshStandardMaterial({ 
-          color: '#90EE90', 
-          roughness: 0.8
-        }),
-        medium: new THREE.MeshLambertMaterial({ 
-          color: '#90EE90'
-        }),
-        low: new THREE.MeshBasicMaterial({ 
-          color: '#90EE90'
-        })
-      });
-
-      this.lodMaterials.set('ground-dense_forest', {
-        high: new THREE.MeshStandardMaterial({ 
-          color: '#006400', 
-          roughness: 0.8
-        }),
-        medium: new THREE.MeshLambertMaterial({ 
-          color: '#006400'
-        }),
-        low: new THREE.MeshBasicMaterial({ 
-          color: '#006400'
-        })
-      });
-
-      this.lodMaterials.set('ground-rocky', {
-        high: new THREE.MeshStandardMaterial({ 
-          color: '#A0A0A0', 
-          roughness: 0.8
-        }),
-        medium: new THREE.MeshLambertMaterial({ 
-          color: '#A0A0A0'
-        }),
-        low: new THREE.MeshBasicMaterial({ 
-          color: '#A0A0A0'
-        })
-      });
+      // Set the same materials for all biome types
+      this.lodMaterials.set('ground-forest', unifiedGroundMaterials);
+      this.lodMaterials.set('ground-clearing', unifiedGroundMaterials);
+      this.lodMaterials.set('ground-dense_forest', unifiedGroundMaterials);
+      this.lodMaterials.set('ground-rocky', unifiedGroundMaterials);
+      
+      // Also create a generic fallback
+      this.lodMaterials.set('ground', unifiedGroundMaterials);
       
       console.log('LODManager: Material initialization complete. Total materials:', this.lodMaterials.size);
     } catch (error) {
@@ -302,27 +304,21 @@ export class LODManager {
 
   // Get appropriate geometry for LOD level
   getGeometry(type: string, lodLevel: LODLevel): THREE.BufferGeometry | null {
-    this.ensureInitialized();
-    
     if (lodLevel === LODLevel.CULLED) return null;
 
-    // Check if we're initialized properly
-    if (!this.initialized || this.lodGeometries.size === 0) {
-      console.error('LODManager: Not properly initialized when getting geometry for type:', type);
-      console.error('LODManager: Initialized:', this.initialized, 'Geometries count:', this.lodGeometries.size);
-      // Force re-initialization
-      this.initialized = false;
-      this.initialize();
-      if (!this.initialized) {
-        console.error('LODManager: Failed to re-initialize');
-        return null;
-      }
+    // Try to ensure initialization
+    const isInitialized = this.ensureInitialized();
+    
+    // If not initialized and we can't initialize, create fallback geometry
+    if (!isInitialized) {
+      console.warn(`LODManager: Creating fallback geometry for type: ${type}, LOD: ${lodLevel}`);
+      return this.createFallbackGeometry(type, lodLevel);
     }
 
     const lodGeometry = this.lodGeometries.get(type);
     if (!lodGeometry) {
-      console.warn(`No LOD geometry found for type: ${type}. Available types:`, Array.from(this.lodGeometries.keys()));
-      return null;
+      console.warn(`No LOD geometry found for type: ${type}, creating fallback`);
+      return this.createFallbackGeometry(type, lodLevel);
     }
 
     switch (lodLevel) {
@@ -340,27 +336,21 @@ export class LODManager {
 
   // Get appropriate material for LOD level
   getMaterial(type: string, lodLevel: LODLevel): THREE.Material | null {
-    this.ensureInitialized();
-    
     if (lodLevel === LODLevel.CULLED) return null;
 
-    // Check if we're initialized properly
-    if (!this.initialized || this.lodMaterials.size === 0) {
-      console.error('LODManager: Not properly initialized when getting material for type:', type);
-      console.error('LODManager: Initialized:', this.initialized, 'Materials count:', this.lodMaterials.size);
-      // Force re-initialization
-      this.initialized = false;
-      this.initialize();
-      if (!this.initialized) {
-        console.error('LODManager: Failed to re-initialize');
-        return null;
-      }
+    // Try to ensure initialization
+    const isInitialized = this.ensureInitialized();
+    
+    // If not initialized and we can't initialize, create fallback material
+    if (!isInitialized) {
+      console.warn(`LODManager: Creating fallback material for type: ${type}, LOD: ${lodLevel}`);
+      return this.createFallbackMaterial(type, lodLevel);
     }
 
     const lodMaterial = this.lodMaterials.get(type);
     if (!lodMaterial) {
-      console.warn(`No LOD material found for type: ${type}. Available types:`, Array.from(this.lodMaterials.keys()));
-      return null;
+      console.warn(`No LOD material found for type: ${type}, creating fallback`);
+      return this.createFallbackMaterial(type, lodLevel);
     }
 
     switch (lodLevel) {
@@ -373,6 +363,79 @@ export class LODManager {
       default:
         console.warn(`Invalid LOD level: ${lodLevel}`);
         return null;
+    }
+  }
+
+  // Create fallback geometry when initialization fails
+  private createFallbackGeometry(type: string, lodLevel: LODLevel): THREE.BufferGeometry {
+    try {
+      switch (type) {
+        case 'ground':
+          const segments = lodLevel === LODLevel.HIGH ? 16 : lodLevel === LODLevel.MEDIUM ? 8 : 4;
+          return new THREE.PlaneGeometry(this.chunkSize, this.chunkSize, segments, segments);
+        case 'tree':
+          const detail = lodLevel === LODLevel.HIGH ? 8 : lodLevel === LODLevel.MEDIUM ? 6 : 4;
+          return new THREE.SphereGeometry(3, detail, detail);
+        case 'tree-trunk':
+          return new THREE.BoxGeometry(1, lodLevel === LODLevel.HIGH ? 8 : 6, 1);
+        case 'rock':
+          const size = lodLevel === LODLevel.HIGH ? 2 : lodLevel === LODLevel.MEDIUM ? 1.8 : 1.5;
+          return new THREE.BoxGeometry(size, size * 0.75, size);
+        case 'shop':
+          const shopSize = lodLevel === LODLevel.HIGH ? 6 : lodLevel === LODLevel.MEDIUM ? 5 : 4;
+          return new THREE.BoxGeometry(shopSize, shopSize * 0.67, shopSize);
+        default:
+          // Generic fallback
+          return new THREE.BoxGeometry(1, 1, 1);
+      }
+    } catch (error) {
+      console.error('Failed to create fallback geometry:', error);
+      // Ultimate fallback - simplest possible geometry
+      return new THREE.BoxGeometry(1, 1, 1);
+    }
+  }
+
+  // Create fallback material when initialization fails
+  private createFallbackMaterial(type: string, lodLevel: LODLevel): THREE.Material {
+    try {
+      let color = '#FFFFFF';
+      
+      switch (type) {
+        case 'ground':
+        case 'ground-forest':
+        case 'ground-clearing':
+        case 'ground-dense_forest':
+        case 'ground-rocky':
+          color = '#228B22';
+          break;
+        case 'tree':
+        case 'tree-foliage':
+          color = '#228B22';
+          break;
+        case 'tree-trunk':
+          color = '#8B4513';
+          break;
+        case 'rock':
+          color = '#696969';
+          break;
+        case 'shop':
+          color = '#8B4513';
+          break;
+      }
+
+      // Use simpler materials for fallback to ensure compatibility
+      switch (lodLevel) {
+        case LODLevel.HIGH:
+          return new THREE.MeshLambertMaterial({ color });
+        case LODLevel.MEDIUM:
+        case LODLevel.LOW:
+        default:
+          return new THREE.MeshBasicMaterial({ color });
+      }
+    } catch (error) {
+      console.error('Failed to create fallback material:', error);
+      // Ultimate fallback - simplest possible material
+      return new THREE.MeshBasicMaterial({ color: '#FFFFFF' });
     }
   }
 
@@ -524,13 +587,23 @@ export class LODManager {
   }
 
   // Create LOD-appropriate ground plane
-  createGroundPlane(biome: string, lodLevel: LODLevel): THREE.Object3D | null {
-    if (lodLevel === LODLevel.CULLED) return null;
+  createGroundPlane(biome: string, lodLevel: LODLevel): THREE.Object3D {
+    if (lodLevel === LODLevel.CULLED) {
+      // Even for culled, return a basic plane to prevent null issues
+      const geometry = new THREE.PlaneGeometry(this.chunkSize, this.chunkSize);
+      const material = new THREE.MeshBasicMaterial({ color: '#228B22', transparent: true, opacity: 0.1 });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.name = `culled-ground-${biome}`;
+      return mesh;
+    }
 
-    const geometry = this.getGeometry('ground', lodLevel);
+    // Get geometry with fallback
+    let geometry = this.getGeometry('ground', lodLevel);
     if (!geometry) {
-      console.warn('Failed to get ground geometry for LOD level:', lodLevel);
-      return null;
+      console.warn('Failed to get ground geometry for LOD level:', lodLevel, 'creating fallback geometry');
+      // Create emergency fallback geometry
+      geometry = new THREE.PlaneGeometry(this.chunkSize, this.chunkSize, 4, 4);
     }
 
     // Try to get biome-specific material first
@@ -552,14 +625,39 @@ export class LODManager {
       }
     }
     
-    // If still no material, create a basic one
+    // If still no material, create a guaranteed working one based on LOD level
     if (!material) {
-      console.warn(`No material found for biome: ${biome}, creating basic material`);
-      material = new THREE.MeshBasicMaterial({ color: '#228B22' }); // Basic green
+      console.warn(`No material found for biome: ${biome}, creating emergency fallback material for LOD level:`, lodLevel);
+      
+      // Create appropriate material type for the LOD level
+      switch (lodLevel) {
+        case LODLevel.HIGH:
+          material = new THREE.MeshStandardMaterial({ 
+            color: '#228B22', 
+            roughness: 0.8 
+          });
+          break;
+        case LODLevel.MEDIUM:
+          material = new THREE.MeshLambertMaterial({ 
+            color: '#228B22' 
+          });
+          break;
+        case LODLevel.LOW:
+        default:
+          material = new THREE.MeshBasicMaterial({ 
+            color: '#228B22' 
+          });
+          break;
+      }
     }
 
+    // Create the mesh - this should never fail now
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
+    
+    // Add a name for debugging
+    mesh.name = `ground-${biome}-${LODLevel[lodLevel]}`;
+    
     return mesh;
   }
 

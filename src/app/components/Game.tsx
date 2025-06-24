@@ -1046,13 +1046,49 @@ export default function Game() {
   const cameraRef = useRef<THREE.Camera | null>(null);
   const lastKnifeAttack = useRef(0);
 
-  // Player position ref to get current position
+  // Player position ref to get current position - persists across re-renders
   const playerPositionRef = useRef<[number, number, number]>([0, 0, 0]);
+  // Preserve position during shop transitions
+  const savedPlayerPosition = useRef<[number, number, number]>([0, 0, 0]);
+  const savedCameraRotation = useRef({ theta: 0, phi: Math.PI / 2 });
+  const isInShopTransition = useRef(false);
   
   // Update player position ref whenever position changes
   useEffect(() => {
     playerPositionRef.current = playerPosition;
   }, [playerPosition]);
+
+  // Handle shop transitions - preserve position and camera state
+  useEffect(() => {
+    if (gameState.shopOpen && !isInShopTransition.current) {
+      // Entering shop - save current state and release pointer lock
+      console.log('Entering shop - saving position:', playerPosition);
+      savedPlayerPosition.current = [...playerPosition];
+      savedCameraRotation.current = { ...cameraRotation.current };
+      isInShopTransition.current = true;
+      
+      // Release pointer lock so user can interact with shop UI
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    } else if (!gameState.shopOpen && isInShopTransition.current) {
+      // Exiting shop - restore state
+      console.log('Exiting shop - restoring position:', savedPlayerPosition.current);
+      setPlayerPosition(savedPlayerPosition.current);
+      cameraRotation.current = { ...savedCameraRotation.current };
+      isInShopTransition.current = false;
+      
+      // Automatically restore pointer lock after a brief delay
+      setTimeout(() => {
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+          canvas.requestPointerLock();
+        }
+      }, 100);
+      
+      console.log('Shop exit complete - position preserved, pointer lock restored');
+    }
+  }, [gameState.shopOpen, playerPosition]);
 
   // Get current melee weapon
   const getCurrentMeleeWeapon = () => {
@@ -1603,150 +1639,93 @@ export default function Game() {
 
 
 
-  // Shop interface
-  if (gameState.shopOpen) {
-    const shopItems = [
-      // Basic Items
-      { id: 'coconuts', name: '🥥 Coconut Launcher', price: 300, description: 'Unlock explosive coconut projectiles' },
-      { id: 'health', name: '❤️ Health Pack', price: 120, description: 'Restore 50 health' },
-      { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 80, description: '10 explosive coconuts' },
-      
-      // Stat Upgrades (Expensive)
-      { id: 'speed', name: '🏃 Speed Boost', price: 400, description: 'Permanent movement speed increase (+20%)' },
-      { id: 'damage', name: '⚔️ Damage Boost', price: 500, description: 'Increase all damage (+25 points)' },
-      { id: 'blast-radius', name: '💥 Blast Radius', price: 600, description: 'Increase coconut explosion radius by 3 units' },
-      { id: 'max-health', name: '💪 Max Health', price: 450, description: 'Increase maximum health by 25' },
-      { id: 'attack-speed', name: '⚡ Attack Speed', price: 550, description: 'Increase attack speed by 25%' },
-      { id: 'critical-chance', name: '🎯 Critical Chance', price: 700, description: 'Increase critical hit chance by 10%' },
-      
-      // Advanced Weapons (Very Expensive)
-      { id: 'banana-boomerang', name: '🍌 Banana Boomerang', price: 800, description: 'Returning projectile weapon' },
-      { id: 'pineapple-grenade', name: '🍍 Pineapple Grenade', price: 1000, description: 'High-damage area explosive' },
-      { id: 'watermelon-cannon', name: '🍉 Watermelon Cannon', price: 1200, description: 'Heavy artillery weapon' },
-      { id: 'durian', name: '🥭 Durian Bomb', price: 900, description: 'Stink bomb with area denial' },
-      { id: 'vine-whip', name: '🌿 Vine Whip', price: 750, description: 'Melee weapon with extended reach' }
-    ];
+  // Shop items definition
+  const shopItems = [
+    // Basic Items
+    { id: 'coconuts', name: '🥥 Coconut Launcher', price: 300, description: 'Unlock explosive coconut projectiles' },
+    { id: 'health', name: '❤️ Health Pack', price: 120, description: 'Restore 50 health' },
+    { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 80, description: '10 explosive coconuts' },
+    
+    // Stat Upgrades (Expensive)
+    { id: 'speed', name: '🏃 Speed Boost', price: 400, description: 'Permanent movement speed increase (+20%)' },
+    { id: 'damage', name: '⚔️ Damage Boost', price: 500, description: 'Increase all damage (+25 points)' },
+    { id: 'blast-radius', name: '💥 Blast Radius', price: 600, description: 'Increase coconut explosion radius by 3 units' },
+    { id: 'max-health', name: '💪 Max Health', price: 450, description: 'Increase maximum health by 25' },
+    { id: 'attack-speed', name: '⚡ Attack Speed', price: 550, description: 'Increase attack speed by 25%' },
+    { id: 'critical-chance', name: '🎯 Critical Chance', price: 700, description: 'Increase critical hit chance by 10%' },
+    
+    // Advanced Weapons (Very Expensive)
+    { id: 'banana-boomerang', name: '🍌 Banana Boomerang', price: 800, description: 'Returning projectile weapon' },
+    { id: 'pineapple-grenade', name: '🍍 Pineapple Grenade', price: 1000, description: 'High-damage area explosive' },
+    { id: 'watermelon-cannon', name: '🍉 Watermelon Cannon', price: 1200, description: 'Heavy artillery weapon' },
+    { id: 'durian', name: '🥭 Durian Bomb', price: 900, description: 'Stink bomb with area denial' },
+    { id: 'vine-whip', name: '🌿 Vine Whip', price: 750, description: 'Melee weapon with extended reach' }
+  ];
 
-    const buyItem = (itemId: string, price: number) => {
-      if (gameState.money >= price) {
-        setGameState(prev => {
-          const newState = { ...prev, money: prev.money - price };
-          
-          switch (itemId) {
-            case 'coconuts':
-              newState.weapons.coconuts = true;
-              newState.coconuts = prev.coconuts + 5;
-              break;
-            case 'health':
-              newState.health = Math.min(100, prev.health + 50);
-              break;
-            case 'coconut-ammo':
-              newState.coconuts = prev.coconuts + 10;
-              break;
-            case 'speed':
-              newState.perks.moveSpeed = prev.perks.moveSpeed + 0.2;
-              break;
-            case 'damage':
-              newState.perks.baseDamage = prev.perks.baseDamage + 25;
-              break;
-            case 'blast-radius':
-              newState.perks.blastRadius = prev.perks.blastRadius + 3;
-              break;
-            case 'max-health':
-              newState.perks.maxHealth = prev.perks.maxHealth + 25;
-              newState.health = Math.min(newState.perks.maxHealth, prev.health + 25);
-              break;
-            case 'attack-speed':
-              newState.perks.attackSpeed = prev.perks.attackSpeed + 0.25;
-              break;
-            case 'critical-chance':
-              newState.perks.criticalChance = prev.perks.criticalChance + 0.1;
-              break;
-            case 'banana-boomerang':
-              newState.weapons.bananaBoomerang = true;
-              newState.weapons.coconuts = true; // Auto-unlock coconut system
-              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
-              break;
-            case 'pineapple-grenade':
-              newState.weapons.pineappleGrenade = true;
-              newState.weapons.coconuts = true; // Auto-unlock coconut system
-              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
-              break;
-            case 'watermelon-cannon':
-              newState.weapons.watermelonCannon = true;
-              newState.weapons.coconuts = true; // Auto-unlock coconut system
-              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
-              break;
-            case 'durian':
-              newState.weapons.durian = true;
-              newState.weapons.coconuts = true; // Auto-unlock coconut system
-              if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
-              break;
-            case 'vine-whip':
-              newState.weapons.vineWhip = true;
-              break;
-          }
-          
-          return newState;
-        });
-      }
-    };
-
-    return (
-      <div className="w-full h-screen bg-gradient-to-b from-amber-900 to-amber-700 flex items-center justify-center">
-        <div className="bg-black bg-opacity-90 p-6 rounded-lg max-w-6xl w-full mx-4 h-[90vh] flex flex-col">
-          <h1 className="text-4xl font-bold text-white mb-6 text-center">🏪 GORILLA SHOP 🏪</h1>
-          <div className="text-2xl text-green-400 mb-6 text-center">💰 Money: ${gameState.money}</div>
-          
-          <div className="flex-1 overflow-y-auto mb-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
-            {shopItems.map(item => {
-              const canAfford = gameState.money >= item.price;
-              const alreadyOwned = item.id === 'coconuts' && gameState.weapons.coconuts;
-              
-              return (
-                <div key={item.id} className={`p-4 rounded-lg border-2 ${
-                  alreadyOwned ? 'bg-green-800 border-green-600' :
-                  canAfford ? 'bg-gray-800 border-green-500 hover:bg-gray-700 cursor-pointer' :
-                  'bg-gray-900 border-red-500 opacity-50'
-                }`}
-                onClick={() => !alreadyOwned && canAfford && buyItem(item.id, item.price)}
-                >
-                  <div className="text-xl font-bold text-white mb-2">{item.name}</div>
-                  <div className="text-gray-300 mb-2">{item.description}</div>
-                  <div className={`text-lg font-bold ${
-                    alreadyOwned ? 'text-green-400' :
-                    canAfford ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {alreadyOwned ? 'OWNED' : `${item.price}`}
-                  </div>
-                </div>
-              );
-            })}
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <button 
-              onClick={() => {
-                setGameState(prev => ({ ...prev, shopOpen: false }));
-                // Auto-request pointer lock when exiting shop
-                setTimeout(() => {
-                  const canvas = document.querySelector('canvas');
-                  if (canvas) {
-                    canvas.requestPointerLock();
-                  }
-                }, 100);
-              }}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-xl"
-            >
-              Close Shop
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const buyItem = (itemId: string, price: number) => {
+    if (gameState.money >= price) {
+      setGameState(prev => {
+        const newState = { ...prev, money: prev.money - price };
+        
+        switch (itemId) {
+          case 'coconuts':
+            newState.weapons.coconuts = true;
+            newState.coconuts = prev.coconuts + 5;
+            break;
+          case 'health':
+            newState.health = Math.min(100, prev.health + 50);
+            break;
+          case 'coconut-ammo':
+            newState.coconuts = prev.coconuts + 10;
+            break;
+          case 'speed':
+            newState.perks.moveSpeed = prev.perks.moveSpeed + 0.2;
+            break;
+          case 'damage':
+            newState.perks.baseDamage = prev.perks.baseDamage + 25;
+            break;
+          case 'blast-radius':
+            newState.perks.blastRadius = prev.perks.blastRadius + 3;
+            break;
+          case 'max-health':
+            newState.perks.maxHealth = prev.perks.maxHealth + 25;
+            newState.health = Math.min(newState.perks.maxHealth, prev.health + 25);
+            break;
+          case 'attack-speed':
+            newState.perks.attackSpeed = prev.perks.attackSpeed + 0.25;
+            break;
+          case 'critical-chance':
+            newState.perks.criticalChance = prev.perks.criticalChance + 0.1;
+            break;
+          case 'banana-boomerang':
+            newState.weapons.bananaBoomerang = true;
+            newState.weapons.coconuts = true; // Auto-unlock coconut system
+            if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
+            break;
+          case 'pineapple-grenade':
+            newState.weapons.pineappleGrenade = true;
+            newState.weapons.coconuts = true; // Auto-unlock coconut system
+            if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
+            break;
+          case 'watermelon-cannon':
+            newState.weapons.watermelonCannon = true;
+            newState.weapons.coconuts = true; // Auto-unlock coconut system
+            if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
+            break;
+          case 'durian':
+            newState.weapons.durian = true;
+            newState.weapons.coconuts = true; // Auto-unlock coconut system
+            if (newState.coconuts === 0) newState.coconuts = 5; // Give some ammo
+            break;
+          case 'vine-whip':
+            newState.weapons.vineWhip = true;
+            break;
+        }
+        
+        return newState;
+      });
+    }
+  };
 
   return (
     <div className="w-full h-screen relative">
@@ -1835,8 +1814,9 @@ export default function Game() {
           playerPosition={playerPosition}
           onShopInteract={() => setGameState(prev => ({ ...prev, shopOpen: true }))}
           seed={12345}
-          chunkSize={50}
-          renderRadius={2}
+          chunkSize={16}  // Reduced from 50 to 16 for smaller, less obvious chunks
+          renderRadius={4}  // Increased from 2 to 4 to maintain same total coverage
+          isInTransition={isInShopTransition.current}
         />
         
         <ThirdPersonPlayer 
@@ -1908,6 +1888,55 @@ export default function Game() {
         />
         <Environment preset="forest" />
       </Canvas>
+
+      {/* Shop UI Overlay */}
+      {gameState.shopOpen && (
+        <div className="absolute inset-0 bg-gradient-to-b from-amber-900 to-amber-700 flex items-center justify-center z-30">
+          <div className="bg-black bg-opacity-90 p-6 rounded-lg max-w-6xl w-full mx-4 h-[90vh] flex flex-col">
+            <h1 className="text-4xl font-bold text-white mb-6 text-center">🏪 GORILLA SHOP 🏪</h1>
+            <div className="text-2xl text-green-400 mb-6 text-center">💰 Money: ${gameState.money}</div>
+            
+            <div className="flex-1 overflow-y-auto mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
+              {shopItems.map(item => {
+                const canAfford = gameState.money >= item.price;
+                const alreadyOwned = item.id === 'coconuts' && gameState.weapons.coconuts;
+                
+                return (
+                  <div key={item.id} className={`p-4 rounded-lg border-2 ${
+                    alreadyOwned ? 'bg-green-800 border-green-600' :
+                    canAfford ? 'bg-gray-800 border-green-500 hover:bg-gray-700 cursor-pointer' :
+                    'bg-gray-900 border-red-500 opacity-50'
+                  }`}
+                  onClick={() => !alreadyOwned && canAfford && buyItem(item.id, item.price)}
+                  >
+                    <div className="text-xl font-bold text-white mb-2">{item.name}</div>
+                    <div className="text-gray-300 mb-2">{item.description}</div>
+                    <div className={`text-lg font-bold ${
+                      alreadyOwned ? 'text-green-400' :
+                      canAfford ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {alreadyOwned ? 'OWNED' : `$${item.price}`}
+                    </div>
+                  </div>
+                );
+              })}
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <button 
+                onClick={() => {
+                  setGameState(prev => ({ ...prev, shopOpen: false }));
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-xl"
+              >
+                Close Shop
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

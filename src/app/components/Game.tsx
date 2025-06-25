@@ -740,6 +740,14 @@ function ShopBuilding({ playerPosition, onShopInteract }: {
 // Import the optimized dynamic terrain system
 import OptimizedDynamicTerrain from './terrain/OptimizedDynamicTerrain';
 
+// Import collision and pathfinding systems
+import { CollisionManager } from './collision/CollisionManager';
+import { PathfindingManager } from './pathfinding/PathfindingManager';
+
+// Import enhanced components
+import { EnhancedThirdPersonPlayer } from './player/EnhancedThirdPersonPlayer';
+import { EnhancedEnemy } from './enemies/EnhancedEnemy';
+
 // Money Drop Component
 function MoneyDropComponent({ money, playerPosition, onCollect }: { 
   money: MoneyDrop, 
@@ -1002,6 +1010,20 @@ function Explosion({ position, blastRadius, onComplete }: { position: [number, n
 
 // Main Game Component
 export default function Game() {
+  // Create collision and pathfinding managers
+  const collisionManager = useRef<CollisionManager | null>(null);
+  const pathfindingManager = useRef<PathfindingManager | null>(null);
+  
+  // Initialize managers
+  useEffect(() => {
+    if (!collisionManager.current) {
+      collisionManager.current = new CollisionManager();
+    }
+    if (!pathfindingManager.current && collisionManager.current) {
+      pathfindingManager.current = new PathfindingManager(collisionManager.current);
+    }
+  }, []);
+
   const [gameState, setGameState] = useState<GameState>({
     health: 100,
     score: 0,
@@ -1817,22 +1839,28 @@ export default function Game() {
           chunkSize={16}  // Reduced from 50 to 16 for smaller, less obvious chunks
           renderRadius={4}  // Increased from 2 to 4 to maintain same total coverage
           isInTransition={isInShopTransition.current}
+          collisionManager={collisionManager.current}
         />
         
-        <ThirdPersonPlayer 
-          position={[0, 0, 0]} 
-          onMove={setPlayerPosition}
-          cameraRotation={cameraRotation}
-          gameState={gameState}
-        />
+        {collisionManager.current && (
+          <EnhancedThirdPersonPlayer 
+            position={playerPosition} 
+            onMove={setPlayerPosition}
+            cameraRotation={cameraRotation}
+            gameState={gameState}
+            collisionManager={collisionManager.current}
+          />
+        )}
         
-        {aliveEnemies.map(enemy => (
-          <AdvancedEnemy 
+        {collisionManager.current && pathfindingManager.current && aliveEnemies.map(enemy => (
+          <EnhancedEnemy 
             key={enemy.id}
             enemy={enemy}
             playerPosition={playerPosition}
             onDamage={handleEnemyDamage}
             onPositionUpdate={handleEnemyPositionUpdate}
+            collisionManager={collisionManager.current!}
+            pathfindingManager={pathfindingManager.current!}
           />
         ))}
         

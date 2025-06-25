@@ -7,6 +7,7 @@ import { ChunkManager } from './ChunkManager';
 import { ObjectPool } from './ObjectPool';
 import { LODManager, LODLevel } from './LODManager';
 import { ChunkCoord, TerrainFeature } from './TerrainGenerator';
+import { CollisionManager } from '../collision/CollisionManager';
 
 interface OptimizedDynamicTerrainProps {
   playerPosition: [number, number, number];
@@ -15,6 +16,7 @@ interface OptimizedDynamicTerrainProps {
   chunkSize?: number;
   renderRadius?: number;
   isInTransition?: boolean;
+  collisionManager?: CollisionManager | null;
 }
 
 // Memory-efficient chunk component using object pooling and LOD
@@ -24,7 +26,8 @@ function OptimizedChunkComponent({
   onShopInteract,
   chunkManager,
   objectPool,
-  lodManager
+  lodManager,
+  collisionManager
 }: { 
   chunkData: {
     coord: ChunkCoord;
@@ -36,6 +39,7 @@ function OptimizedChunkComponent({
   chunkManager: ChunkManager;
   objectPool: ObjectPool;
   lodManager: LODManager;
+  collisionManager?: CollisionManager | null;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const chunkSize = chunkManager.getChunkSize();
@@ -141,6 +145,19 @@ function OptimizedChunkComponent({
           type: feature.type,
           feature 
         });
+
+        // Register collision obstacles for trees and rocks
+        if (collisionManager && (feature.type === 'tree' || feature.type === 'rock')) {
+          const radius = feature.type === 'tree' ? 0.8 : 1.2; // Use same values as CollisionManager
+          const height = feature.type === 'tree' ? 8 : 2;
+          collisionManager.addCollisionObject({
+            id: `${feature.type}-${feature.position[0]}-${feature.position[2]}`,
+            type: feature.type,
+            position: [feature.position[0], feature.position[1], feature.position[2]],
+            radius: radius,
+            height: height
+          });
+        }
       }
     });
 
@@ -216,7 +233,8 @@ export default function OptimizedDynamicTerrain({
   onShopInteract, 
   seed = 12345,
   chunkSize = 16,  // Reduced from 50 to 16 for smaller, less obvious chunks
-  renderRadius = 4  // Increased from 2 to 4 to maintain same total coverage
+  renderRadius = 4,  // Increased from 2 to 4 to maintain same total coverage
+  collisionManager = null
 }: OptimizedDynamicTerrainProps) {
   const chunkManager = useMemo(() => 
     new ChunkManager(seed, chunkSize, renderRadius), 
@@ -330,6 +348,7 @@ export default function OptimizedDynamicTerrain({
             chunkManager={chunkManager}
             objectPool={objectPool}
             lodManager={lodManager}
+            collisionManager={collisionManager}
           />
         ))}
       </group>

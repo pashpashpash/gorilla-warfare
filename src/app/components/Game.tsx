@@ -748,6 +748,76 @@ import { PathfindingManager } from './pathfinding/PathfindingManager';
 import { EnhancedThirdPersonPlayer } from './player/EnhancedThirdPersonPlayer';
 import { EnhancedEnemy } from './enemies/EnhancedEnemy';
 
+// Safe spawn position utility
+function findSafeSpawnPosition(
+  collisionManager: CollisionManager,
+  preferredPosition: [number, number, number],
+  entityRadius: number = 0.4,
+  maxSearchRadius: number = 20,
+  playerPosition: [number, number, number] = [0, 0, 0],
+  minPlayerDistance: number = 8
+): [number, number, number] {
+  // First check if preferred position is safe
+  const collision = collisionManager.checkCircleCollision(
+    preferredPosition[0], 
+    preferredPosition[2], 
+    entityRadius
+  );
+  
+  // Also check distance from player
+  const playerDx = preferredPosition[0] - playerPosition[0];
+  const playerDz = preferredPosition[2] - playerPosition[2];
+  const playerDistance = Math.sqrt(playerDx * playerDx + playerDz * playerDz);
+  
+  if (!collision.hit && playerDistance >= minPlayerDistance) {
+    return preferredPosition;
+  }
+  
+  // Search in expanding circles for a safe position
+  for (let radius = 1; radius <= maxSearchRadius; radius += 1) {
+    const searchPoints = Math.max(8, radius * 4); // More points for larger radii
+    
+    for (let i = 0; i < searchPoints; i++) {
+      const angle = (i / searchPoints) * Math.PI * 2;
+      const testX = preferredPosition[0] + Math.cos(angle) * radius;
+      const testZ = preferredPosition[2] + Math.sin(angle) * radius;
+      
+      // Check collision with terrain
+      const testCollision = collisionManager.checkCircleCollision(testX, testZ, entityRadius);
+      
+      // Check distance from player
+      const testPlayerDx = testX - playerPosition[0];
+      const testPlayerDz = testZ - playerPosition[2];
+      const testPlayerDistance = Math.sqrt(testPlayerDx * testPlayerDx + testPlayerDz * testPlayerDz);
+      
+      if (!testCollision.hit && testPlayerDistance >= minPlayerDistance) {
+        return [testX, preferredPosition[1], testZ];
+      }
+    }
+  }
+  
+  // If no safe position found, return a position far from obstacles
+  // Try positions at the edge of the search area
+  for (let i = 0; i < 16; i++) {
+    const angle = (i / 16) * Math.PI * 2;
+    const fallbackX = preferredPosition[0] + Math.cos(angle) * maxSearchRadius;
+    const fallbackZ = preferredPosition[2] + Math.sin(angle) * maxSearchRadius;
+    
+    const fallbackCollision = collisionManager.checkCircleCollision(fallbackX, fallbackZ, entityRadius);
+    const fallbackPlayerDx = fallbackX - playerPosition[0];
+    const fallbackPlayerDz = fallbackZ - playerPosition[2];
+    const fallbackPlayerDistance = Math.sqrt(fallbackPlayerDx * fallbackPlayerDx + fallbackPlayerDz * fallbackPlayerDz);
+    
+    if (!fallbackCollision.hit && fallbackPlayerDistance >= minPlayerDistance) {
+      return [fallbackX, preferredPosition[1], fallbackZ];
+    }
+  }
+  
+  // Last resort: return original position (enemy will have unstuck logic)
+  console.warn('Could not find safe spawn position, using original position');
+  return preferredPosition;
+}
+
 // Money Drop Component
 function MoneyDropComponent({ money, playerPosition, onCollect }: { 
   money: MoneyDrop, 
@@ -1300,13 +1370,28 @@ export default function Game() {
         if (enemyType === 'monkey') enemyHealth *= 0.8; // Faster, weaker
         else if (enemyType === 'gorilla') enemyHealth *= 1.5; // Slower, tankier
         
+        // Calculate preferred spawn position
+        const preferredPosition: [number, number, number] = [
+          Math.cos(angle) * distance,
+          0,
+          Math.sin(angle) * distance
+        ];
+        
+        // Find safe spawn position using collision manager
+        const safePosition = collisionManager.current 
+          ? findSafeSpawnPosition(
+              collisionManager.current,
+              preferredPosition,
+              0.4, // Enemy radius
+              20,  // Max search radius
+              playerPositionRef.current,
+              8    // Min distance from player
+            )
+          : preferredPosition;
+
         newEnemies.push({
           id: `enemy-${gameState.wave}-${i}`,
-          position: [
-            Math.cos(angle) * distance,
-            0,
-            Math.sin(angle) * distance
-          ],
+          position: safePosition,
           health: Math.round(enemyHealth),
           type: enemyType,
           speed: enemyType === 'monkey' ? 6 + Math.random() * 3 : enemyType === 'gorilla' ? 4 + Math.random() * 2 : 5 + Math.random() * 3,

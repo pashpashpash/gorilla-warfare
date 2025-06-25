@@ -51,6 +51,9 @@ export function EnhancedEnemy({
   const pathRequestCooldown = 200; // Request new path every 200ms (much more responsive)
   const enemyRadius = 0.4; // Enemy collision radius
   const lastPlayerPosition = useRef([...playerPosition]);
+  const lastMovementTime = useRef(Date.now());
+  const lastPosition = useRef([...enemy.position]);
+  const stuckCheckInterval = useRef(0);
   
   const behaviorState = useRef({
     lastSpecialAttack: 0,
@@ -382,10 +385,91 @@ export function EnhancedEnemy({
         ref.current.visible = true;
       }
       
+      // Stuck detection and recovery system
+      stuckCheckInterval.current += delta;
+      if (stuckCheckInterval.current >= 2.0) { // Check every 2 seconds
+        const currentTime = Date.now();
+        const positionDx = enemyPos.current[0] - lastPosition.current[0];
+        const positionDz = enemyPos.current[2] - lastPosition.current[2];
+        const movementDistance = Math.sqrt(positionDx * positionDx + positionDz * positionDz);
+        
+        // If enemy hasn't moved much in 2 seconds AND is colliding with something
+        if (movementDistance < 0.5 && currentTime - lastMovementTime.current > 2000) {
+          const collision = collisionManager.checkCircleCollision(
+            enemyPos.current[0], 
+            enemyPos.current[2], 
+            enemyRadius
+          );
+          
+          if (collision.hit) {
+            console.log(`Enemy ${enemy.id} is stuck! Attempting unstuck...`);
+            
+            // Try to find a safe position nearby using the same algorithm as spawn
+            const safePosition = findSafePositionForStuckEnemy(
+              enemyPos.current[0],
+              enemyPos.current[2],
+              collisionManager,
+              enemyRadius
+            );
+            
+            if (safePosition) {
+              console.log(`Moving stuck enemy ${enemy.id} to safe position:`, safePosition);
+              enemyPos.current[0] = safePosition[0];
+              enemyPos.current[2] = safePosition[1];
+              // Clear path to force recalculation
+              currentPath.current = [];
+              pathIndex.current = 0;
+            } else {
+              // Last resort: teleport near player but not too close
+              const angle = Math.random() * Math.PI * 2;
+              const distance = 8 + Math.random() * 5; // 8-13 units from player
+              enemyPos.current[0] = playerPosition[0] + Math.cos(angle) * distance;
+              enemyPos.current[2] = playerPosition[2] + Math.sin(angle) * distance;
+              console.log(`Emergency teleport for stuck enemy ${enemy.id}`);
+            }
+            
+            lastMovementTime.current = currentTime;
+          }
+        }
+        
+        // Update tracking variables
+        if (movementDistance > 0.1) {
+          lastMovementTime.current = currentTime;
+        }
+        lastPosition.current = [enemyPos.current[0], enemyPos.current[1], enemyPos.current[2]];
+        stuckCheckInterval.current = 0;
+      }
+      
       // Report current position back to parent
       onPositionUpdate(enemy.id, [enemyPos.current[0], enemyPos.current[1], enemyPos.current[2]]);
     }
   });
+
+  // Helper function to find safe position for stuck enemies
+  const findSafePositionForStuckEnemy = (
+    currentX: number,
+    currentZ: number,
+    collisionManager: CollisionManager,
+    radius: number
+  ): [number, number] | null => {
+    // Search in expanding circles for a safe position
+    for (let searchRadius = 2; searchRadius <= 15; searchRadius += 2) {
+      const searchPoints = Math.max(8, searchRadius * 2);
+      
+      for (let i = 0; i < searchPoints; i++) {
+        const angle = (i / searchPoints) * Math.PI * 2;
+        const testX = currentX + Math.cos(angle) * searchRadius;
+        const testZ = currentZ + Math.sin(angle) * searchRadius;
+        
+        const collision = collisionManager.checkCircleCollision(testX, testZ, radius);
+        if (!collision.hit) {
+          return [testX, testZ];
+        }
+      }
+    }
+    
+    return null; // No safe position found
+  };
 
   if (!enemy.alive) return null;
 

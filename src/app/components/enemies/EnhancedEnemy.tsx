@@ -126,19 +126,88 @@ export function EnhancedEnemy({
     const moveX = (dx / distance) * speed;
     const moveZ = (dz / distance) * speed;
 
-    // Check collision before moving
-    const newX = enemyPos.current[0] + moveX;
-    const newZ = enemyPos.current[2] + moveZ;
+    // Try movement with sliding collision response
+    let finalX = enemyPos.current[0];
+    let finalZ = enemyPos.current[2];
     
-    const collision = collisionManager.checkCircleCollision(newX, newZ, enemyRadius);
+    // Try X movement first
+    if (Math.abs(moveX) > 0.001) {
+      const testX = enemyPos.current[0] + moveX;
+      const collisionX = collisionManager.checkCircleCollision(testX, enemyPos.current[2], enemyRadius);
+      
+      if (!collisionX.hit) {
+        finalX = testX;
+      } else if (collisionX.normal) {
+        // Try sliding along the surface for X movement
+        const slideFactorX = 1 - Math.abs(collisionX.normal[0]);
+        const slideX = enemyPos.current[0] + moveX * slideFactorX * 0.7; // Reduce sliding speed
+        
+        // Verify the slide doesn't cause collision
+        const slideTestX = collisionManager.checkCircleCollision(slideX, enemyPos.current[2], enemyRadius);
+        if (!slideTestX.hit) {
+          finalX = slideX;
+        }
+        // If sliding fails, we'll try alternative movement below
+      }
+    }
     
-    if (!collision.hit) {
-      enemyPos.current[0] = newX;
-      enemyPos.current[2] = newZ;
+    // Try Z movement
+    if (Math.abs(moveZ) > 0.001) {
+      const testZ = enemyPos.current[2] + moveZ;
+      const collisionZ = collisionManager.checkCircleCollision(finalX, testZ, enemyRadius);
+      
+      if (!collisionZ.hit) {
+        finalZ = testZ;
+      } else if (collisionZ.normal) {
+        // Try sliding along the surface for Z movement
+        const slideFactorZ = 1 - Math.abs(collisionZ.normal[2]);
+        const slideZ = enemyPos.current[2] + moveZ * slideFactorZ * 0.7; // Reduce sliding speed
+        
+        // Verify the slide doesn't cause collision
+        const slideTestZ = collisionManager.checkCircleCollision(finalX, slideZ, enemyRadius);
+        if (!slideTestZ.hit) {
+          finalZ = slideZ;
+        }
+        // If sliding fails, we'll try alternative movement below
+      }
+    }
+    
+    // Check if we made any progress
+    const progressMade = Math.abs(finalX - enemyPos.current[0]) > 0.001 || 
+                        Math.abs(finalZ - enemyPos.current[2]) > 0.001;
+    
+    if (progressMade) {
+      // Apply the movement
+      enemyPos.current[0] = finalX;
+      enemyPos.current[2] = finalZ;
     } else {
-      // Path is blocked, request new path
-      currentPath.current = [];
-      pathIndex.current = 0;
+      // No progress made, try alternative movement directions
+      const alternativeDirections = [
+        [moveX * 0.5, moveZ * -0.5], // Try diagonal movement
+        [moveX * -0.5, moveZ * 0.5], // Try opposite diagonal
+        [0, moveZ], // Try pure Z movement
+        [moveX, 0], // Try pure X movement
+      ];
+      
+      let alternativeWorked = false;
+      for (const [altX, altZ] of alternativeDirections) {
+        const altTestX = enemyPos.current[0] + altX;
+        const altTestZ = enemyPos.current[2] + altZ;
+        const altCollision = collisionManager.checkCircleCollision(altTestX, altTestZ, enemyRadius);
+        
+        if (!altCollision.hit) {
+          enemyPos.current[0] = altTestX;
+          enemyPos.current[2] = altTestZ;
+          alternativeWorked = true;
+          break;
+        }
+      }
+      
+      // If no alternative movement worked, request new path
+      if (!alternativeWorked) {
+        currentPath.current = [];
+        pathIndex.current = 0;
+      }
     }
 
     return true;

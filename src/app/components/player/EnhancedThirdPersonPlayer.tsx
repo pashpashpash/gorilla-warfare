@@ -60,40 +60,53 @@ export function EnhancedThirdPersonPlayer({
       if (keys.a) moveVector.add(cameraRight.clone().multiplyScalar(-speed));
       if (keys.d) moveVector.add(cameraRight.clone().multiplyScalar(speed));
       
-      // Calculate new position
-      const newX = playerPos.current[0] + moveVector.x;
-      const newZ = playerPos.current[2] + moveVector.z;
+      // Try movement with sliding collision response
+      let finalX = playerPos.current[0];
+      let finalZ = playerPos.current[2];
       
-      // Check collision for the new position
-      const collision = collisionManager.checkCircleCollision(newX, newZ, playerRadius);
-      
-      if (!collision.hit) {
-        // No collision - move freely
-        playerPos.current[0] = newX;
-        playerPos.current[2] = newZ;
-      } else if (collision.normal) {
-        // Collision detected - try sliding along the surface
-        const slideVector = new THREE.Vector3(moveVector.x, 0, moveVector.z);
-        const normal = new THREE.Vector3(collision.normal[0], 0, collision.normal[2]);
+      // Try X movement first
+      if (Math.abs(moveVector.x) > 0.001) {
+        const testX = playerPos.current[0] + moveVector.x;
+        const collisionX = collisionManager.checkCircleCollision(testX, playerPos.current[2], playerRadius);
         
-        // Project movement vector onto the surface (remove component along normal)
-        const projectedMovement = slideVector.clone().sub(
-          normal.clone().multiplyScalar(slideVector.dot(normal))
-        );
-        
-        // Try the sliding movement
-        const slideX = playerPos.current[0] + projectedMovement.x;
-        const slideZ = playerPos.current[2] + projectedMovement.z;
-        
-        const slideCollision = collisionManager.checkCircleCollision(slideX, slideZ, playerRadius);
-        
-        if (!slideCollision.hit) {
-          // Sliding movement is valid
-          playerPos.current[0] = slideX;
-          playerPos.current[2] = slideZ;
+        if (!collisionX.hit) {
+          finalX = testX;
+        } else if (collisionX.normal) {
+          // Try sliding along the surface for X movement
+          const slideFactorX = 1 - Math.abs(collisionX.normal[0]);
+          finalX = playerPos.current[0] + moveVector.x * slideFactorX * 0.8; // Reduce sliding speed slightly
+          
+          // Verify the slide doesn't cause collision
+          const slideTestX = collisionManager.checkCircleCollision(finalX, playerPos.current[2], playerRadius);
+          if (slideTestX.hit) {
+            finalX = playerPos.current[0]; // Revert if slide causes collision
+          }
         }
-        // If sliding also fails, player stays in place (blocked)
       }
+      
+      // Try Z movement
+      if (Math.abs(moveVector.z) > 0.001) {
+        const testZ = playerPos.current[2] + moveVector.z;
+        const collisionZ = collisionManager.checkCircleCollision(finalX, testZ, playerRadius);
+        
+        if (!collisionZ.hit) {
+          finalZ = testZ;
+        } else if (collisionZ.normal) {
+          // Try sliding along the surface for Z movement
+          const slideFactorZ = 1 - Math.abs(collisionZ.normal[2]);
+          finalZ = playerPos.current[2] + moveVector.z * slideFactorZ * 0.8; // Reduce sliding speed slightly
+          
+          // Verify the slide doesn't cause collision
+          const slideTestZ = collisionManager.checkCircleCollision(finalX, finalZ, playerRadius);
+          if (slideTestZ.hit) {
+            finalZ = playerPos.current[2]; // Revert if slide causes collision
+          }
+        }
+      }
+      
+      // Apply final position
+      playerPos.current[0] = finalX;
+      playerPos.current[2] = finalZ;
       
       // Keep player on ground
       playerPos.current[1] = 0;

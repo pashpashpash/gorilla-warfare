@@ -11,6 +11,11 @@ import {
 } from '@react-three/drei';
 import * as THREE from 'three';
 
+// Import performance and memory management systems
+import { memoryManager } from './memory/MemoryManager';
+import { performanceOptimizer, PerformanceMetrics } from './memory/PerformanceOptimizer';
+import { gameObjectPool } from './memory/GameObjectPool';
+
 // Game state interface
 interface GameState {
   health: number;

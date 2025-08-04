@@ -147,7 +147,7 @@ function OptimizedProjectile({ coconut, onHit, playerPosition }: {
     };
   }, []);
   
-  useFrame((state, delta) => {
+  useFrame((state: any, delta: number) => {
     if (ref.current) {
       const projectileType = coconut.projectileType || 'coconuts';
       
@@ -173,7 +173,7 @@ function OptimizedProjectile({ coconut, onHit, playerPosition }: {
           }
           
           if (distance < 3) {
-            onHit(coconut.id, [...coconutPos.current]);
+            onHit(coconut.id, coconutPos.current as [number, number, number]);
             return;
           }
         }
@@ -194,7 +194,7 @@ function OptimizedProjectile({ coconut, onHit, playerPosition }: {
       // Check if hit ground or expired
       life.current -= delta;
       if (coconutPos.current[1] <= 0 || life.current <= 0) {
-        onHit(coconut.id, [...coconutPos.current]);
+        onHit(coconut.id, coconutPos.current as [number, number, number]);
         return;
       }
       
@@ -202,11 +202,7 @@ function OptimizedProjectile({ coconut, onHit, playerPosition }: {
     }
   });
 
-  // Get projectile appearance from object pool
-  const getProjectileObject = useCallback(() => {
-    const projectileType = coconut.projectileType || 'coconuts';
-    return gameObjectPool.getObject('projectile', projectileType);
-  }, [coconut.projectileType]);
+  // Note: appearance pooling is handled at a higher level; no direct pool access here
 
   return (
     <group ref={ref} position={coconut.position}>
@@ -239,7 +235,7 @@ function OptimizedMoneyDrop({ money, playerPosition, onCollect }: {
     };
   }, []);
   
-  useFrame((state, delta) => {
+  useFrame((state: any, delta: number) => {
     if (ref.current && !money.collected) {
       const dx = playerPosition[0] - money.position[0];
       const dz = playerPosition[2] - money.position[2];
@@ -317,7 +313,7 @@ function OptimizedExplosion({ position, blastRadius, onComplete }: {
   const animationSpeed = 8 / (blastRadius / 5);
   const maxScale = 1.5 + (blastRadius / 10);
   
-  useFrame((state, delta) => {
+  useFrame((state: any, delta: number) => {
     if (ref.current) {
       scale.current += delta * animationSpeed;
       if (scale.current > maxScale) {
@@ -340,6 +336,50 @@ function OptimizedExplosion({ position, blastRadius, onComplete }: {
       <Sphere args={[blastRadius / 2.5]} position={[0, 0, 0]}>
         <meshBasicMaterial color="orange" transparent opacity={0.8} />
       </Sphere>
+    </group>
+  );
+}
+
+ // Melee Attack Component (Knife)
+function KnifeAttackComponent({ attack, onComplete, onHit }: {
+  attack: KnifeAttack,
+  onComplete: (attackId: string) => void,
+  onHit: (attackId: string, position: [number, number, number]) => void
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const life = useRef(attack.life);
+
+  useFrame((state: any, delta: number) => {
+    if (!ref.current) return;
+    life.current -= delta;
+    if (life.current <= 0) {
+      onComplete(attack.id);
+      return;
+    }
+    // advance forward and fade
+    ref.current.position.x += attack.direction[0] * delta * 15;
+    ref.current.position.y += attack.direction[1] * delta * 15;
+    ref.current.position.z += attack.direction[2] * delta * 15;
+
+    // report current position for hit detection
+    const currentPos: [number, number, number] = [
+      ref.current.position.x,
+      ref.current.position.y,
+      ref.current.position.z
+    ];
+    onHit(attack.id, currentPos);
+
+    const opacity = Math.max(0, life.current / attack.life);
+    ref.current.children.forEach((child: any) => {
+      if (child.material) child.material.opacity = opacity;
+    });
+  });
+
+  return (
+    <group ref={ref} position={attack.position}>
+      <Box args={[0.1, 0.5, 2]} position={[0, 0, 0]}>
+        <meshBasicMaterial color="#C0C0C0" transparent />
+      </Box>
     </group>
   );
 }
@@ -524,7 +564,7 @@ export default function OptimizedGame() {
 
     return () => {
       performanceOptimizer.dispose();
-      memoryManager.cleanup();
+      memoryManager.forceCleanup();
     };
   }, []);
 
@@ -542,6 +582,175 @@ export default function OptimizedGame() {
   useEffect(() => {
     playerPositionRef.current = playerPosition;
   }, [playerPosition]);
+
+  // Reset transient maps/lists on wave change and prune collected items
+  useEffect(() => {
+    // Clear enemy position cache when wave increments
+    setEnemyPositions({});
+    // Prune collected loot/money and cap list sizes to prevent unbounded growth
+    setMoneyDrops(prev => prev.filter(m => !m.collected).slice(-100));
+    setLootBoxes(prev => prev.filter(l => !l.collected).slice(-20));
+  }, [gameState.wave]);
+
+  // Also clear enemy position cache whenever enemies list is emptied (between waves)
+  useEffect(() => {
+    if (gameState.enemies.length === 0) {
+      setEnemyPositions({});
+    }
+  }, [gameState.enemies.length]);
+
+  // Periodic housekeeping to keep arrays bounded during long sessions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMoneyDrops(prev => prev.filter(m => !m.collected).slice(-100));
+      setLootBoxes(prev => prev.filter(l => !l.collected).slice(-20));
+      setExplosions(prev => prev.slice(-50));
+      setKnifeAttacks(prev => prev.slice(-15));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Wave completion -> start between-waves timer and increment wave
+  useEffect(() => {
+    const alive = gameState.enemies.filter(e => e.alive);
+    if (
+      alive.length === 0 &&
+      gameState.gameStarted &&
+      gameState.enemies.length > 0 &&
+      !gameState.betweenWaves
+    ) {
+      setGameState(prev => ({
+        ...prev,
+        wave: prev.wave + 1,
+        betweenWaves: true,
+        waveTimer: 60
+      }));
+    }
+  }, [gameState.enemies, gameState.gameStarted, gameState.betweenWaves]);
+
+  // Between-wave timer countdown and auto start next wave
+  useEffect(() => {
+    if (gameState.betweenWaves && gameState.waveTimer > 0) {
+      const t = setTimeout(() => {
+        setGameState(prev => ({ ...prev, waveTimer: prev.waveTimer - 1 }));
+      }, 1000);
+      return () => clearTimeout(t);
+    } else if (gameState.betweenWaves && gameState.waveTimer <= 0) {
+      setGameState(prev => ({
+        ...prev,
+        betweenWaves: false,
+        waveTimer: 60,
+        enemies: []
+      }));
+    }
+  }, [gameState.betweenWaves, gameState.waveTimer]);
+
+  // Enter to start next wave early
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === 'Enter' && gameState.betweenWaves) {
+        setGameState(prev => ({
+          ...prev,
+          betweenWaves: false,
+          waveTimer: 60,
+          enemies: []
+        }));
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [gameState.betweenWaves]);
+
+  // Lose condition
+  useEffect(() => {
+    if (gameState.health <= 0 && !gameState.gameOver) {
+      setGameState(prev => ({ ...prev, gameOver: true }));
+    }
+  }, [gameState.health, gameState.gameOver]);
+
+  // Pointer lock and mouse movement
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (isPointerLocked) {
+        const sensitivity = 0.002;
+        cameraRotation.current.theta -= event.movementX * sensitivity;
+        cameraRotation.current.phi -= event.movementY * sensitivity;
+        cameraRotation.current.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraRotation.current.phi));
+      }
+    };
+    const handlePointerLockChange = () => {
+      setIsPointerLocked(document.pointerLockElement !== null);
+    };
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.code === 'Escape' && isPointerLocked) {
+        document.exitPointerLock();
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('pointerlockchange', handlePointerLockChange);
+    document.addEventListener('keydown', handleEscapeKey);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('pointerlockchange', handlePointerLockChange);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [isPointerLocked]);
+
+  // Release pointer lock when shop opens, restore when it closes
+  useEffect(() => {
+    if (gameState.shopOpen) {
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    } else {
+      // small delay for React overlay unmount etc.
+      setTimeout(() => {
+        const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+        if (canvas) canvas.requestPointerLock();
+      }, 100);
+    }
+  }, [gameState.shopOpen]);
+
+  // Keyboard movement state sharing for EnhancedThirdPersonPlayer
+  useEffect(() => {
+    const keys = { w: false, a: false, s: false, d: false, space: false };
+    (window as any).gameKeys = keys;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      switch (event.code) {
+        case 'KeyW': keys.w = true; break;
+        case 'KeyA': keys.a = true; break;
+        case 'KeyS': keys.s = true; break;
+        case 'KeyD': keys.d = true; break;
+        case 'Space':
+          keys.space = true;
+          event.preventDefault();
+          if (gameState.weapons.knife && gameState.gameStarted && !gameState.gameOver) {
+            performMeleeAttack();
+          }
+          break;
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      switch (event.code) {
+        case 'KeyW': keys.w = false; break;
+        case 'KeyA': keys.a = false; break;
+        case 'KeyS': keys.s = false; break;
+        case 'KeyD': keys.d = false; break;
+        case 'Space': keys.space = false; break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      delete (window as any).gameKeys;
+    };
+  }, [isPointerLocked]);
 
   // Performance-based enemy limiting
   const getMaxEnemies = useCallback(() => {
@@ -567,8 +776,9 @@ export default function OptimizedGame() {
       setMoneyDrops(prev => prev.slice(0, Math.floor(prev.length * 0.5)));
       
       // Force garbage collection if available
-      if (window.gc) {
-        window.gc();
+      const w = window as any;
+      if (w.gc) {
+        w.gc();
       }
     }
   }, []);
@@ -682,6 +892,111 @@ export default function OptimizedGame() {
     }
   };
 
+  // Melee attack (knife)
+  const performMeleeAttack = () => {
+    const now = Date.now();
+    const cooldown = 500; // ms
+    if (now - lastKnifeAttack.current < cooldown) return;
+    if (!cameraRef.current) return;
+
+    lastKnifeAttack.current = now;
+
+    const direction = new THREE.Vector3();
+    cameraRef.current.getWorldDirection(direction);
+
+    const startPos = [
+      playerPositionRef.current[0],
+      playerPositionRef.current[1] + 1,
+      playerPositionRef.current[2]
+    ] as [number, number, number];
+
+    const newAttack: KnifeAttack = {
+      id: `knife-${now}`,
+      position: startPos,
+      direction: [direction.x, direction.y, direction.z],
+      life: 0.5,
+      weaponType: 'knife'
+    };
+
+    setKnifeAttacks(prev => [...prev, newAttack]);
+
+    // Immediate AoE damage around player at attack start
+    setGameState(prev => ({
+      ...prev,
+      enemies: prev.enemies.map(enemy => {
+        if (!enemy.alive) return enemy;
+        const currentPos = enemyPositions[enemy.id] || enemy.position;
+        const dx = currentPos[0] - playerPositionRef.current[0];
+        const dz = currentPos[2] - playerPositionRef.current[2];
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance < 3.0) {
+          const baseDamage = 75;
+          const actualDamage = baseDamage * (prev.perks.baseDamage / 50);
+          const newHealth = enemy.health - actualDamage;
+          if (newHealth <= 0) {
+            const baseMoneyValue = 15 + Math.floor(Math.random() * 10);
+            const waveBonus = prev.wave * 2;
+            const moneyValue = baseMoneyValue + waveBonus;
+            const newMoney: MoneyDrop = {
+              id: `money-knife-${enemy.id}-${now}-${Math.random().toString(36).substr(2, 9)}`,
+              position: [currentPos[0], (currentPos as any)[1] + 1 || 1, currentPos[2]],
+              value: moneyValue,
+              collected: false
+            };
+            setMoneyDrops(prevM => [...prevM, newMoney]);
+            return { ...enemy, health: 0, alive: false };
+          }
+          return { ...enemy, health: newHealth };
+        }
+        return enemy;
+      })
+    }));
+  };
+
+  const handleKnifeAttackComplete = (attackId: string) => {
+    setKnifeAttacks(prev => prev.filter(k => k.id !== attackId));
+  };
+
+  const handleKnifeAttackHit = (attackId: string, position: [number, number, number]) => {
+    // Check for hits on enemies at the knife position and remove the attack on hit
+    setGameState(prev => ({
+      ...prev,
+      enemies: prev.enemies.map(enemy => {
+        if (!enemy.alive) return enemy;
+
+        const currentPos = enemyPositions[enemy.id] || enemy.position;
+        const dx = currentPos[0] - position[0];
+        const dz = currentPos[2] - position[2];
+        const distance = Math.sqrt(dx * dx + dz * dz);
+
+        if (distance < 3) { // knife hit range
+          const baseDamage = 75;
+          const actualDamage = baseDamage * (prev.perks.baseDamage / 50);
+          const newHealth = enemy.health - actualDamage;
+          if (newHealth <= 0) {
+            const baseMoneyValue = 15 + Math.floor(Math.random() * 10);
+            const waveBonus = prev.wave * 2;
+            const moneyValue = baseMoneyValue + waveBonus;
+            const newMoney: MoneyDrop = {
+              id: `money-knife-${enemy.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              position: [currentPos[0], (currentPos as any)[1] + 1 || 1, currentPos[2]],
+              value: moneyValue,
+              collected: false
+            };
+            setMoneyDrops(prevM => [...prevM, newMoney]);
+            // Remove the knife attack after a successful kill
+            setKnifeAttacks(prevK => prevK.filter(k => k.id !== attackId));
+            return { ...enemy, health: 0, alive: false };
+          }
+          // Remove the knife attack after any successful hit
+          setKnifeAttacks(prevK => prevK.filter(k => k.id !== attackId));
+          return { ...enemy, health: newHealth };
+        }
+        return enemy;
+      })
+    }));
+  };
+
   // Handle coconut hit
   const handleCoconutHit = (coconutId: string, position: [number, number, number]) => {
     const explosionId = `explosion-${coconutId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -728,7 +1043,14 @@ export default function OptimizedGame() {
 
   // Handle enemy damage
   const handleEnemyDamage = () => {
-    setGameState(prev => ({ ...prev, health: Math.max(0, prev.health - 10) }));
+    setGameState(prev => {
+      const newHealth = Math.max(0, prev.health - 10);
+      return {
+        ...prev,
+        health: newHealth,
+        gameOver: prev.gameOver || newHealth <= 0
+      };
+    });
   };
 
   // Handle enemy position update
@@ -769,4 +1091,295 @@ export default function OptimizedGame() {
     }
   };
 
-  //
+  // Shop items and buying logic
+  const shopItems = [
+    { id: 'coconuts', name: '🥥 Coconut Launcher', price: 300, description: 'Unlock explosive coconut projectiles' },
+    { id: 'health', name: '❤️ Health Pack', price: 120, description: 'Restore 50 health' },
+    { id: 'coconut-ammo', name: '🥥 Coconut Ammo (10)', price: 80, description: '10 explosive coconuts' },
+    { id: 'speed', name: '🏃 Speed Boost', price: 400, description: 'Permanent movement speed increase (+20%)' },
+    { id: 'damage', name: '⚔️ Damage Boost', price: 500, description: 'Increase all damage (+25 points)' },
+    { id: 'blast-radius', name: '💥 Blast Radius', price: 600, description: 'Increase coconut explosion radius by 3 units' },
+    { id: 'max-health', name: '💪 Max Health', price: 450, description: 'Increase maximum health by 25' },
+    { id: 'attack-speed', name: '⚡ Attack Speed', price: 550, description: 'Increase attack speed by 25%' },
+    { id: 'critical-chance', name: '🎯 Critical Chance', price: 700, description: 'Increase critical hit chance by 10%' },
+    { id: 'banana-boomerang', name: '🍌 Banana Boomerang', price: 800, description: 'Returning projectile weapon' },
+    { id: 'pineapple-grenade', name: '🍍 Pineapple Grenade', price: 1000, description: 'High-damage area explosive' },
+    { id: 'watermelon-cannon', name: '🍉 Watermelon Cannon', price: 1200, description: 'Heavy artillery weapon' },
+    { id: 'durian', name: '🥭 Durian Bomb', price: 900, description: 'Stink bomb with area denial' },
+    { id: 'vine-whip', name: '🌿 Vine Whip', price: 750, description: 'Melee weapon with extended reach' }
+  ] as const;
+
+  const buyItem = (itemId: string, price: number) => {
+    setGameState(prev => {
+      if (prev.money < price) return prev;
+      const newState = { ...prev, money: prev.money - price };
+      switch (itemId) {
+        case 'coconuts':
+          newState.weapons.coconuts = true;
+          newState.coconuts = prev.coconuts + 5;
+          break;
+        case 'health':
+          newState.health = Math.min(prev.perks.maxHealth, prev.health + 50);
+          break;
+        case 'coconut-ammo':
+          newState.coconuts = prev.coconuts + 10;
+          break;
+        case 'speed':
+          newState.perks.moveSpeed = prev.perks.moveSpeed + 0.2;
+          break;
+        case 'damage':
+          newState.perks.baseDamage = prev.perks.baseDamage + 25;
+          break;
+        case 'blast-radius':
+          newState.perks.blastRadius = prev.perks.blastRadius + 3;
+          break;
+        case 'max-health':
+          newState.perks.maxHealth = prev.perks.maxHealth + 25;
+          newState.health = Math.min(newState.perks.maxHealth, prev.health + 25);
+          break;
+        case 'attack-speed':
+          newState.perks.attackSpeed = prev.perks.attackSpeed + 0.25;
+          break;
+        case 'critical-chance':
+          newState.perks.criticalChance = prev.perks.criticalChance + 0.1;
+          break;
+        case 'banana-boomerang':
+          newState.weapons.bananaBoomerang = true;
+          newState.weapons.coconuts = true;
+          if (newState.coconuts === 0) newState.coconuts = 5;
+          break;
+        case 'pineapple-grenade':
+          newState.weapons.pineappleGrenade = true;
+          newState.weapons.coconuts = true;
+          if (newState.coconuts === 0) newState.coconuts = 5;
+          break;
+        case 'watermelon-cannon':
+          newState.weapons.watermelonCannon = true;
+          newState.weapons.coconuts = true;
+          if (newState.coconuts === 0) newState.coconuts = 5;
+          break;
+        case 'durian':
+          newState.weapons.durian = true;
+          newState.weapons.coconuts = true;
+          if (newState.coconuts === 0) newState.coconuts = 5;
+          break;
+        case 'vine-whip':
+          newState.weapons.vineWhip = true;
+          break;
+      }
+      return newState;
+    });
+  };
+
+  // UI and rendering
+  const aliveEnemies = gameState.enemies.filter(e => e.alive);
+
+  if (!gameState.gameStarted) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-b from-green-900 to-green-700 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-6xl font-bold text-white mb-8">🦍 GORILLA WARFARE 🦍</h1>
+          <p className="text-2xl text-green-200 mb-8">Tutorial Mode: Fight the AI Apes!</p>
+          <button 
+            onClick={startGame}
+            className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-4 px-8 rounded-lg text-2xl"
+          >
+            START BATTLE
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (gameState.gameOver) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-b from-red-900 to-red-700 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-6xl font-bold text-white mb-8">💀 GAME OVER 💀</h1>
+          <p className="text-2xl text-red-200 mb-8">Final Score: {gameState.score}</p>
+          <p className="text-lg text-red-300 mb-8">Wave Reached: {gameState.wave}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-lg text-2xl"
+          >
+            PLAY AGAIN
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-screen relative">
+      {/* HUD */}
+      <div className="absolute top-4 left-4 z-10 text-white">
+        <div className="bg-black bg-opacity-50 p-4 rounded-lg">
+          <div>Health: {gameState.health}/{gameState.perks.maxHealth}</div>
+          <div>Score: {gameState.score}</div>
+          <div>💰 Money: ${gameState.money}</div>
+          <div>🥥 Coconuts: {gameState.coconuts}</div>
+          <div>Wave: {gameState.wave}</div>
+          <div>Enemies: {aliveEnemies.length}</div>
+        </div>
+      </div>
+
+      {/* Between-wave overlay */}
+      {gameState.betweenWaves && (
+        <>
+          <div className="absolute top-0 left-0 w-full bg-[rgba(0,0,0,0.6)] z-20 p-4">
+            <div className="text-center">
+              <h1 className="text-2xl font-bold text-white mb-1">Wave {gameState.wave - 1} complete</h1>
+              <div className="text-lg text-blue-200">Next wave starts in: {gameState.waveTimer}s (Press Enter to start early)</div>
+            </div>
+          </div>
+          <div className="absolute bottom-0 left-0 w-full bg-[rgba(0,0,0,0.5)] z-20 p-3">
+            <div className="text-center text-white">
+              <div className="text-lg mb-1">Walk to the shop (brown building) and press F to buy upgrades</div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Shop UI Overlay */}
+      {gameState.shopOpen && (
+        <div className="absolute inset-0 bg-gradient-to-b from-amber-900 to-amber-700 flex items-center justify-center z-30">
+          <div className="bg-black bg-opacity-90 p-6 rounded-lg max-w-6xl w-full mx-4 h-[90vh] flex flex-col">
+            <h1 className="text-3xl font-bold text-white mb-4 text-center">🏪 Gorilla Shop</h1>
+            <div className="text-xl text-green-400 mb-4 text-center">💰 Money: ${gameState.money}</div>
+
+            <div className="flex-1 overflow-y-auto mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
+                {shopItems.map(item => {
+                  const canAfford = gameState.money >= item.price;
+                  const alreadyOwned =
+                    (item.id === 'coconuts' && gameState.weapons.coconuts) ||
+                    (item.id === 'banana-boomerang' && gameState.weapons.bananaBoomerang) ||
+                    (item.id === 'pineapple-grenade' && gameState.weapons.pineappleGrenade) ||
+                    (item.id === 'watermelon-cannon' && gameState.weapons.watermelonCannon) ||
+                    (item.id === 'durian' && gameState.weapons.durian) ||
+                    (item.id === 'vine-whip' && gameState.weapons.vineWhip);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-4 rounded-lg border-2 ${
+                        alreadyOwned ? 'bg-green-800 border-green-600' :
+                        canAfford ? 'bg-gray-800 border-green-500 hover:bg-gray-700 cursor-pointer' :
+                        'bg-gray-900 border-red-500 opacity-50'
+                      }`}
+                      onClick={() => !alreadyOwned && canAfford && buyItem(item.id, item.price)}
+                    >
+                      <div className="text-xl font-bold text-white mb-2">{item.name}</div>
+                      <div className="text-gray-300 mb-2">{item.description}</div>
+                      <div className={`text-lg font-bold ${
+                        alreadyOwned ? 'text-green-400' :
+                        canAfford ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {alreadyOwned ? 'OWNED' : `$${item.price}`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="text-center">
+              <button
+                onClick={() => setGameState(prev => ({ ...prev, shopOpen: false }))}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg"
+              >
+                Close Shop
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Canvas 
+        camera={{ position: [8, 6, 12], fov: 75 }}
+        onClick={handleCanvasClick}
+        style={{ cursor: 'crosshair' }}
+      >
+        <Sky sunPosition={[100, 20, 100]} />
+        <ambientLight intensity={0.4} />
+        <directionalLight position={[10, 10, 5]} intensity={1} />
+        <pointLight position={[-10, 10, -10]} intensity={0.5} />
+
+        <OptimizedDynamicTerrain 
+          playerPosition={playerPosition}
+          onShopInteract={() => setGameState(prev => ({ ...prev, shopOpen: true }))}
+          seed={12345}
+          chunkSize={16}
+          renderRadius={4}
+          collisionManager={collisionManager.current}
+        />
+
+        {collisionManager.current && (
+          <EnhancedThirdPersonPlayer 
+            position={playerPosition} 
+            onMove={setPlayerPosition}
+            cameraRotation={cameraRotation}
+            gameState={gameState}
+            collisionManager={collisionManager.current}
+          />
+        )}
+
+        {collisionManager.current && pathfindingManager.current && aliveEnemies.map(enemy => (
+          <EnhancedEnemy 
+            key={enemy.id}
+            enemy={enemy}
+            playerPosition={playerPosition}
+            onDamage={() => setGameState(prev => ({ ...prev, health: Math.max(0, prev.health - 10) }))}
+            onPositionUpdate={(id, pos) => setEnemyPositions(prev => ({ ...prev, [id]: pos }))}
+            collisionManager={collisionManager.current!}
+            pathfindingManager={pathfindingManager.current!}
+          />
+        ))}
+
+        {coconutProjectiles.map(coconut => (
+          <OptimizedProjectile
+            key={coconut.id}
+            coconut={coconut}
+            onHit={handleCoconutHit}
+            playerPosition={playerPosition}
+          />
+        ))}
+
+        {explosions.map(explosion => (
+          <OptimizedExplosion
+            key={explosion.id}
+            position={explosion.position}
+            blastRadius={gameState.perks.blastRadius}
+            onComplete={() => setExplosions(prev => prev.filter(e => e.id !== explosion.id))}
+          />
+        ))}
+
+        {moneyDrops.map(money => (
+          <OptimizedMoneyDrop
+            key={money.id}
+            money={money}
+            playerPosition={playerPosition}
+            onCollect={handleMoneyCollect}
+          />
+        ))}
+
+        {knifeAttacks.map(attack => (
+          <KnifeAttackComponent
+            key={attack.id}
+            attack={attack}
+            onComplete={() => handleKnifeAttackComplete(attack.id)}
+            onHit={(id, pos) => handleKnifeAttackHit(id, pos)}
+          />
+        ))}
+
+        <OptimizedCamera 
+          playerPosition={playerPosition} 
+          cameraRotation={cameraRotation}
+          onCameraReady={(cam) => { cameraRef.current = cam; }}
+        />
+        <PerformanceMonitor onPerformanceUpdate={handlePerformanceUpdate} />
+        <Environment preset="forest" />
+      </Canvas>
+    </div>
+  );
+}

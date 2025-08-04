@@ -89,12 +89,18 @@ function OptimizedChunkComponent({
   useEffect(() => {
     if (!groupRef.current || chunkLOD === LODLevel.CULLED) return;
 
-    // Clear existing objects
-    renderObjectsRef.current.forEach(({ object, type }) => {
+    // Clear existing objects and remove collision entries if any
+    renderObjectsRef.current.forEach(({ object, type, feature }) => {
       if (object.parent) {
         object.parent.remove(object);
       }
+      // Return pooled objects where applicable
       objectPool.returnObject(object, type);
+      // Remove collision bounds for features previously registered
+      if (collisionManager && feature && (feature.type === 'tree' || feature.type === 'rock')) {
+        const id = `${feature.type}-${feature.position[0]}-${feature.position[2]}`;
+        collisionManager.removeCollisionObject(id);
+      }
     });
     renderObjectsRef.current = [];
 
@@ -208,7 +214,7 @@ function OptimizedChunkComponent({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      renderObjectsRef.current.forEach(({ object, type }) => {
+      renderObjectsRef.current.forEach(({ object, type, feature }) => {
         if (object.parent) {
           object.parent.remove(object);
         }
@@ -216,10 +222,15 @@ function OptimizedChunkComponent({
         if (type === 'waterfall' || type === 'ground-plane' || type === 'shop-prompt') {
           objectPool.returnObject(object, type);
         }
+        // Remove collision entries for terrain features
+        if (collisionManager && feature && (feature.type === 'tree' || feature.type === 'rock')) {
+          const id = `${feature.type}-${feature.position[0]}-${feature.position[2]}`;
+          collisionManager.removeCollisionObject(id);
+        }
       });
       renderObjectsRef.current = [];
     };
-  }, [objectPool]);
+  }, [objectPool, collisionManager]);
 
   if (chunkLOD === LODLevel.CULLED) {
     return null;

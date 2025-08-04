@@ -48,7 +48,10 @@ export class MemoryManager {
       gcThreshold: 400 // MB
     };
 
-    this.startMemoryMonitoring();
+    // Only start monitoring in the browser to avoid SSR document/window usage
+    if (typeof window !== 'undefined') {
+      this.startMemoryMonitoring();
+    }
   }
 
   public static getInstance(): MemoryManager {
@@ -244,6 +247,10 @@ export class MemoryManager {
   // Get WebGL renderer instance (if available)
   private getWebGLRenderer(): THREE.WebGLRenderer | null {
     // Try to find renderer in global scope or DOM
+    // Guard for SSR (no document on server)
+    if (typeof document === 'undefined') {
+      return null;
+    }
     const canvas = document.querySelector('canvas');
     const canvasWithRenderer = canvas as HTMLCanvasElement & { __renderer?: THREE.WebGLRenderer };
     if (canvasWithRenderer && canvasWithRenderer.__renderer) {

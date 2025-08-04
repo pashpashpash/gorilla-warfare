@@ -1,5 +1,5 @@
-import Game from '../components/Game';
+import OptimizedGame from '../components/OptimizedGame';
 
 export default function GamePage() {
-  return <Game />;
+  return <OptimizedGame />;
 }
